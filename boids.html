@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Boids</title>
+
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-wEmeIV1mKuiNpC+IOBjI7aAzPcEZeedi5yW5f2yOq55WWLwNGmvvx4Um1vskeMj0" crossorigin="anonymous">
+<script src="https://code.jquery.com/jquery-3.4.1.slim.min.js" integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.13.0/css/all.css">
+<link rel="stylesheet" href="./style.css">
+
+<script src="plotly-2.16.1.min.js"></script>
+<script src="gui.js"></script>
+<script src="boids.js"></script>
+<script>
+"use strict"
+
+let running = true
+
+function step(){
+	// update time logger
+	document.getElementById("time").innerHTML = S.time	
+	if( running ){ S.step() }
+	canvas.drawSwarm()
+	
+	let trace = {
+		x: S.getAngles(),
+		type: 'histogram',
+		nbinsx : 30
+	  }
+	let data = [trace]
+	var layout = {
+	  xaxis: {range:  [0, 360], title: "angle (degrees)"},
+	  yaxis: {range: [0,20], title: "count" }
+	  
+	}
+	Plotly.newPlot('myDiv', data, layout)
+	requestAnimationFrame( step )
+}
+
+function toggleRunning(){
+	running = !running
+}
+
+</script>
+</head>
+<body onload="initialize(); setSliders(); setPlayPause(); sliderInput(); step()">
+<!--<body onload="initialize(); setPlayPause(); setSliders(); sliderInput(); step()">-->
+
+<div style="text-align:center;max-width:1000px;margin:auto">
+
+ 
+ <h1>Boids</h1>
+ 
+ 
+ <p><b>Model parameters:</b></p>
+<table width="600px" align="center">
+
+<tr>
+	<td style="width:20%">Alignment weight</td>
+	<td style="width:70%"> 
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="wa" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">Cohesion weight</td>
+	<td style="width:70%"> 
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="wc" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">Separation weight</td>
+	<td style="width:70%"> 
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="ws" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">R<sub>outer</sub></td>
+	<td style="width:70%"> 
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="Ro" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">R<sub>inner</sub></td>
+	<td style="width:70%"> 
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="Ri" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+</table>
+
+
+
+<br>
+
+	<div class="row sim-controls">
+		<div class="col-sm-12 col-l-6">
+			<button id="playPause" class="btn"><span id="playIcon" class="fa fa-play"></span></button>
+			<button id="reset" class="btn"><i class="fa fa-redo"></i></button>
+		</div>			
+	</div>
+	<p>
+	Time: <span id ="time">0</span> steps<br></p>
+
+<div align="center">
+	<div class="row sim-controls">
+		<div>
+			<div id="canvasModel" class="simulationCanvas"></div><br>
+		</div>	
+		<div>
+			<div id="myDiv"  style="width:400px;height:300px;" ></div><br>
+		</div>			
+	</div>
+	<br>
+</div>
+</div>
+ 
+ </div>
+</body>
+
+<script>
+
+	
+	$(document).ready(function () {
+			
+		$('#playPause').on('click', function () {
+			toggleRunning()
+			setPlayPause()		
+		});
+		$('#reset').on('click', function () {
+			resetSim()
+			setPlayPause()
+		});
+	});
+
+</script>
+</html>
