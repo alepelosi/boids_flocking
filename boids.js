@@ -2,13 +2,17 @@ let canvas, S;
 let conf = {
   w: 400,
   h: 400,
-  N: 200,
+  N: 50,
   zoom: 1,
   innerRadius: 10,
   outerRadius: 25,
   cohesion: 1,
   separation: 1,
   alignment: 1,
+  targetX: 350,
+  targetY: 350,
+  targetWeight: 0.08,
+  targetRadius: 30,
 };
 
 class Canvas {
@@ -26,6 +30,20 @@ class Canvas {
     this.ctx = this.el.getContext("2d");
     this.ctx.lineWidth = 0.2;
     this.ctx.lineCap = "butt";
+  }
+
+  drawTarget() {
+    this.ctx.strokeStyle = "#008000";
+    this.ctx.lineWidth = 2;
+    this.ctx.beginPath();
+    this.ctx.arc(
+      this.S.conf.targetX,
+      this.S.conf.targetY,
+      this.S.conf.targetRadius,
+      0,
+      2 * Math.PI,
+    );
+    this.ctx.stroke();
   }
 
   background(col) {
@@ -74,6 +92,7 @@ class Canvas {
 
   drawSwarm() {
     this.background("eaecef");
+    this.drawTarget();
     for (let p of this.S.swarm) {
       this.fillCircle(p.pos, "ff0000");
       this.drawCircle(p.pos, "aaaaaa", this.S.conf.outerRadius);
@@ -105,6 +124,18 @@ class Scene {
       angles.push(ang);
     }
     return angles;
+  }
+  targetSuccess() {
+    let count = 0;
+    const tx = this.conf.targetX;
+    const ty = this.conf.targetY;
+    const tr = this.conf.targetRadius;
+
+    for (let p of this.swarm) {
+      const d = this.dist(p.pos, [tx, ty]);
+      if (d <= tr) count++;
+    }
+    return count / this.swarm.length;
   }
 
   wrap(pos, reference = undefined) {
@@ -216,6 +247,10 @@ class Scene {
       p.updateVector();
     }
     this.time++;
+
+    if (this.time % 20 === 0) {
+      console.log("time:", this.time, "targetSuccess:", this.targetSuccess());
+    }
   }
 }
 
@@ -246,6 +281,32 @@ class Particle {
       out.push(a[d] - b[d]);
     }
     return out;
+  }
+
+  targetVector() {
+    const target = [this.S.conf.targetX, this.S.conf.targetY];
+    const tpos = this.S.wrap(target, this.pos);
+
+    const dx = tpos[0] - this.pos[0];
+    const dy = tpos[1] - this.pos[1];
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    // no pull if already inside target
+    if (d <= this.S.conf.targetRadius) return [0, 0];
+
+    // attraction gets weaker near the target
+    const slowRadius = 100;
+    let strength = 1.0;
+
+    if (d < slowRadius) {
+      strength =
+        (d - this.S.conf.targetRadius) /
+        (slowRadius - this.S.conf.targetRadius);
+      strength = Math.max(0, Math.min(1, strength));
+    }
+
+    const dir = [dx / d, dy / d];
+    return this.multiplyVector(dir, strength);
   }
 
   // multiply vector by a constant
@@ -325,10 +386,16 @@ class Particle {
       separation_weight,
     );
 
+    const target = this.multiplyVector(
+      this.targetVector(),
+      this.S.conf.targetWeight,
+    );
+
     // combine current direction with steering terms
     let newDir = this.addVectors(this.dir, align);
     newDir = this.addVectors(newDir, cohesion);
     newDir = this.addVectors(newDir, separation);
+    newDir = this.addVectors(newDir, target);
 
     // keep constant speed by normalizing direction
     this.dir = this.normalizeVector(newDir);
