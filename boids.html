@@ -17,24 +17,22 @@
 let running = true
 
 function step(){
-	// update time logger
-	document.getElementById("time").innerHTML = S.time	
+	document.getElementById("time").innerHTML = S.time
 	if( running ){ S.step() }
 	canvas.drawSwarm()
-	
-	let trace = {
-		x: S.getAngles(),
-		type: 'histogram',
-		nbinsx : 30
-	  }
-	let data = [trace]
-	var layout = {
-	  xaxis: {range:  [0, 360], title: "angle (degrees)"},
-	  yaxis: {range: [0,20], title: "count" }
-	  
-	}
-	Plotly.newPlot('myDiv', data, layout)
+
+	updateMetrics()
+
 	requestAnimationFrame( step )
+}
+
+function updateMetrics() {
+	const metrics = S.computeFitness();
+	document.getElementById("timePenalty").innerHTML = metrics.timePenalty.toFixed(3);
+	document.getElementById("timeToMajority").innerHTML = metrics.firstMajorityTime >= 0 ? metrics.firstMajorityTime : "failed";
+	document.getElementById("orderParameter").innerHTML = metrics.orderParameter.toFixed(3);
+	document.getElementById("collisions").innerHTML = metrics.collisions;
+	document.getElementById("fitness").innerHTML = metrics.fitness.toFixed(3);
 }
 
 function toggleRunning(){
@@ -44,20 +42,19 @@ function toggleRunning(){
 </script>
 </head>
 <body onload="initialize(); setSliders(); setPlayPause(); sliderInput(); step()">
-<!--<body onload="initialize(); setPlayPause(); setSliders(); sliderInput(); step()">-->
 
 <div style="text-align:center;max-width:1000px;margin:auto">
 
- 
- <h1>Boids</h1>
- 
- 
- <p><b>Model parameters:</b></p>
+
+  <h1>Boids</h1>
+
+
+  <p><b>Model parameters:</b></p>
 <table width="600px" align="center">
 
 <tr>
 	<td style="width:20%">Alignment weight</td>
-	<td style="width:70%"> 
+	<td style="width:70%">
 		<div class="range-wrap">
 		  <input type="range" class="range" min="0" max="100" id="wa" oninput="sliderInput()" >
 		  <output class="bubble"></output>
@@ -67,7 +64,7 @@ function toggleRunning(){
 </tr>
 <tr>
 	<td style="width:20%">Cohesion weight</td>
-	<td style="width:70%"> 
+	<td style="width:70%">
 		<div class="range-wrap">
 		  <input type="range" class="range" min="0" max="100" id="wc" oninput="sliderInput()" >
 		  <output class="bubble"></output>
@@ -77,7 +74,7 @@ function toggleRunning(){
 </tr>
 <tr>
 	<td style="width:20%">Separation weight</td>
-	<td style="width:70%"> 
+	<td style="width:70%">
 		<div class="range-wrap">
 		  <input type="range" class="range" min="0" max="100" id="ws" oninput="sliderInput()" >
 		  <output class="bubble"></output>
@@ -86,22 +83,39 @@ function toggleRunning(){
 	<td style="width:20%"></td>
 </tr>
 <tr>
-	<td style="width:20%">R<sub>outer</sub></td>
-	<td style="width:70%"> 
+	<td style="width:20%">Avoidance weight</td>
+	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="Ro" oninput="sliderInput()" >
+		  <input type="range" class="range" min="0" max="100" id="wav" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
 	<td style="width:20%"></td>
 </tr>
 <tr>
-	<td style="width:20%">R<sub>inner</sub></td>
-	<td style="width:70%"> 
+	<td style="width:20%">Perception radius</td>
+	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="Ri" oninput="sliderInput()" >
+		  <input type="range" class="range" min="5" max="100" id="Rp" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">Target weight</td>
+	<td style="width:70%">
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="wt" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">Seed</td>
+	<td style="width:70%">
+		<input type="number" id="seed" value="12345" onchange="updateSeed()">
 	</td>
 	<td style="width:20%"></td>
 </tr>
@@ -115,7 +129,7 @@ function toggleRunning(){
 		<div class="col-sm-12 col-l-6">
 			<button id="playPause" class="btn"><span id="playIcon" class="fa fa-play"></span></button>
 			<button id="reset" class="btn"><i class="fa fa-redo"></i></button>
-		</div>			
+		</div>
 	</div>
 	<p>
 	Time: <span id ="time">0</span> steps<br></p>
@@ -124,32 +138,66 @@ function toggleRunning(){
 	<div class="row sim-controls">
 		<div>
 			<div id="canvasModel" class="simulationCanvas"></div><br>
-		</div>	
-		<div>
-			<div id="myDiv"  style="width:400px;height:300px;" ></div><br>
-		</div>			
+		</div>
 	</div>
 	<br>
 </div>
-</div>
- 
- </div>
+
+<p><b>Metrics:</b></p>
+<table width="400px" align="center" border="1" style="border-collapse: collapse;">
+<tr>
+	<td style="width:50%; padding: 8px;"><b>Time Penalty</b></td>
+	<td style="width:50%; padding: 8px;"><span id="timePenalty">0</span></td>
+</tr>
+<tr>
+	<td style="width:50%; padding: 8px;"><b>Time to Majority</b></td>
+	<td style="width:50%; padding: 8px;"><span id="timeToMajority">-</span></td>
+</tr>
+<tr>
+	<td style="width:50%; padding: 8px;"><b>Order Parameter</b></td>
+	<td style="width:50%; padding: 8px;"><span id="orderParameter">0</span></td>
+</tr>
+<tr>
+	<td style="width:50%; padding: 8px;"><b>Collisions</b></td>
+	<td style="width:50%; padding: 8px;"><span id="collisions">0</span></td>
+</tr>
+<tr style="background-color: #e0e0e0;">
+	<td style="width:50%; padding: 8px;"><b>Fitness</b></td>
+	<td style="width:50%; padding: 8px;"><span id="fitness">0</span></td>
+</tr>
+</table>
+
+  </div>
 </body>
 
 <script>
 
-	
+
 	$(document).ready(function () {
-			
+
 		$('#playPause').on('click', function () {
 			toggleRunning()
-			setPlayPause()		
+			setPlayPause()
 		});
 		$('#reset').on('click', function () {
 			resetSim()
 			setPlayPause()
 		});
 	});
+
+	function updateSeed() {
+		const newSeed = parseInt(document.getElementById('seed').value) || 12345;
+		rngState = newSeed;
+		S.conf.seed = newSeed;
+		S.generateObstacles();
+		S.generateTarget();
+		S.collisionCount = 0;
+		S.firstMajorityTime = -1;
+		S.time = 0;
+		running = false;
+		setPlayPause();
+		canvas.drawSwarm();
+	}
 
 </script>
 </html>
