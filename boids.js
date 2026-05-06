@@ -1,29 +1,27 @@
 let canvas, S;
 let conf = {
-  w: 400,
-  h: 400,
-  N: 50,
+  w: 800,
+  h: 800,
+  N: 100,
   zoom: 1,
-  innerRadius: 10,
-  outerRadius: 25,
-  perceptionRadius: 25,
-  cohesion: 1,
-  separation: 1,
-  alignment: 1,
-  avoidance: 1,
-  targetX: 350,
-  targetY: 350,
-  targetWeight: 0.05,
-  targetRadius: 30,
-  numObstacles: 5,
-  obstacleRadius: 25,
+  perceptionRadius: 40,
+  cohesion: 0.05,
+  separation: 0.05,
+  alignment: 0.05,
+  avoidance: 0.05,
+  targetX: 700,
+  targetY: 700,
+  targetWeight: 0.02,
+  targetRadius: 60,
+  numObstacles: 8,
+  obstacleRadius: 40,
   seed: 12345,
-  maxSteps: 500,
+  maxSteps: 1000,
   majorityThreshold: 0.8,
   failurePenalty: 2,
   maxForce: 0.05,
   fovAngle: 135,
-  noiseStrength: 0.02
+  noiseStrength: 0.015
 };
 
 let rngState = conf.seed;
@@ -152,7 +150,7 @@ class Canvas {
   fillCircle(pos, col) {
     this.ctx.fillStyle = "#" + col;
     this.ctx.beginPath();
-    this.ctx.arc(pos[0], pos[1], this.S.conf.innerRadius / 2, 0, 2 * Math.PI);
+    this.ctx.arc(pos[0], pos[1], 5, 0, 2 * Math.PI);
     this.ctx.stroke();
     this.ctx.fill();
   }
@@ -177,7 +175,7 @@ class Canvas {
 
       let drawVec = p.multiplyVector(
         p.dir,
-        this.S.conf.innerRadius * 1.2 * zoom
+        6 * zoom
       );
       drawVec = p.addVectors(startPoint, drawVec);
 
@@ -327,7 +325,7 @@ class Scene {
     for (let p of this.swarm) {
       for (let obs of this.obstacles) {
         const d = this.dist(p.pos, [obs.x, obs.y]);
-        if (d < obs.radius + this.conf.innerRadius / 2) {
+        if (d < obs.radius + 5) {
           collisions++;
           break;
         }
@@ -410,7 +408,7 @@ class Scene {
       constraintPenalty += 1.0;
     }
 
-    if (c.avoidance < 0.5) {
+    if (c.avoidance < 0.05) {
       constraintPenalty += 0.5;
     }
 

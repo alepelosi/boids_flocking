@@ -56,7 +56,7 @@ function toggleRunning(){
 	<td style="width:20%">Alignment weight</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="wa" oninput="sliderInput()" >
+		  <input type="range" class="range" min="1" max="15" id="wa" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
@@ -66,7 +66,7 @@ function toggleRunning(){
 	<td style="width:20%">Cohesion weight</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="wc" oninput="sliderInput()" >
+		  <input type="range" class="range" min="1" max="15" id="wc" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
@@ -76,7 +76,7 @@ function toggleRunning(){
 	<td style="width:20%">Separation weight</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="ws" oninput="sliderInput()" >
+		  <input type="range" class="range" min="1" max="15" id="ws" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
@@ -86,7 +86,7 @@ function toggleRunning(){
 	<td style="width:20%">Avoidance weight</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="wav" oninput="sliderInput()" >
+		  <input type="range" class="range" min="1" max="15" id="wav" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
@@ -96,7 +96,7 @@ function toggleRunning(){
 	<td style="width:20%">Perception radius</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="5" max="100" id="Rp" oninput="sliderInput()" >
+		  <input type="range" class="range" min="10" max="80" id="Rp" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
@@ -106,7 +106,7 @@ function toggleRunning(){
 	<td style="width:20%">Target weight</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="wt" oninput="sliderInput()" >
+		  <input type="range" class="range" min="1" max="15" id="wt" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
 	</td>
@@ -116,36 +116,9 @@ function toggleRunning(){
 	<td style="width:20%">Max Force</td>
 	<td style="width:70%">
 		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="maxF" oninput="sliderInput()" >
+		  <input type="range" class="range" min="1" max="8" id="maxF" oninput="sliderInput()" >
 		  <output class="bubble"></output>
 		</div>
-	</td>
-	<td style="width:20%"></td>
-</tr>
-<tr>
-	<td style="width:20%">FOV Angle (deg)</td>
-	<td style="width:70%">
-		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="360" id="fov" oninput="sliderInput()" >
-		  <output class="bubble"></output>
-		</div>
-	</td>
-	<td style="width:20%"></td>
-</tr>
-<tr>
-	<td style="width:20%">Noise Strength</td>
-	<td style="width:70%">
-		<div class="range-wrap">
-		  <input type="range" class="range" min="0" max="100" id="noise" oninput="sliderInput()" >
-		  <output class="bubble"></output>
-		</div>
-	</td>
-	<td style="width:20%"></td>
-</tr>
-<tr>
-	<td style="width:20%">Seed</td>
-	<td style="width:70%">
-		<input type="number" id="seed" value="12345" onchange="updateSeed()">
 	</td>
 	<td style="width:20%"></td>
 </tr>
@@ -201,33 +174,19 @@ function toggleRunning(){
 </body>
 
 <script>
+ 
+ 
+ 	$(document).ready(function () {
 
-
-	$(document).ready(function () {
-
-		$('#playPause').on('click', function () {
-			toggleRunning()
-			setPlayPause()
-		});
-		$('#reset').on('click', function () {
-			resetSim()
-			setPlayPause()
-		});
-	});
-
-	function updateSeed() {
-		const newSeed = parseInt(document.getElementById('seed').value) || 12345;
-		rngState = newSeed;
-		S.conf.seed = newSeed;
-		S.generateObstacles();
-		S.generateTarget();
-		S.collisionCount = 0;
-		S.firstMajorityTime = -1;
-		S.time = 0;
-		running = false;
-		setPlayPause();
-		canvas.drawSwarm();
-	}
+ 		$('#playPause').on('click', function () {
+ 			toggleRunning()
+ 			setPlayPause()
+ 		});
+ 		$('#reset').on('click', function () {
+ 			resetSim()
+ 			setPlayPause()
+ 		});
+ 	});
 
 </script>
 </html>
