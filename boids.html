@@ -113,6 +113,36 @@ function toggleRunning(){
 	<td style="width:20%"></td>
 </tr>
 <tr>
+	<td style="width:20%">Max Force</td>
+	<td style="width:70%">
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="maxF" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">FOV Angle (deg)</td>
+	<td style="width:70%">
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="360" id="fov" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
+	<td style="width:20%">Noise Strength</td>
+	<td style="width:70%">
+		<div class="range-wrap">
+		  <input type="range" class="range" min="0" max="100" id="noise" oninput="sliderInput()" >
+		  <output class="bubble"></output>
+		</div>
+	</td>
+	<td style="width:20%"></td>
+</tr>
+<tr>
 	<td style="width:20%">Seed</td>
 	<td style="width:70%">
 		<input type="number" id="seed" value="12345" onchange="updateSeed()">

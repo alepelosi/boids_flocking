@@ -13,14 +13,17 @@ let conf = {
   avoidance: 1,
   targetX: 350,
   targetY: 350,
-  targetWeight: 0.08,
+  targetWeight: 0.05,
   targetRadius: 30,
   numObstacles: 5,
   obstacleRadius: 25,
   seed: 12345,
   maxSteps: 500,
   majorityThreshold: 0.8,
-  failurePenalty: 2
+  failurePenalty: 2,
+  maxForce: 0.05,
+  fovAngle: 135,
+  noiseStrength: 0.02
 };
 
 let rngState = conf.seed;
@@ -345,7 +348,7 @@ class Scene {
       timePenalty = 1.0 + this.conf.failurePenalty;
     }
 
-    const fitness = 0.6 * timePenalty + 0.25 * orderParam - 0.15 * collisionPenalty;
+    const fitness = 0.5 * timePenalty + 0.25 * orderParam - 0.25 * collisionPenalty;
 
     return {
       fitness: fitness,
@@ -353,6 +356,77 @@ class Scene {
       orderParameter: orderParam,
       collisions: this.collisionCount,
       firstMajorityTime: this.firstMajorityTime
+    };
+  }
+
+  computeParameterPenalty() {
+    let penalty = 0;
+    const c = this.conf;
+    const flockingWeights = [c.cohesion, c.separation, c.alignment];
+    const maxFlock = Math.max(...flockingWeights);
+    const minFlock = Math.min(...flockingWeights);
+    const ratio = maxFlock / minFlock;
+
+    if (ratio > 5) {
+      penalty += (ratio - 5) * 0.1;
+    }
+
+    if (c.maxForce > 0.06) {
+      penalty += (c.maxForce - 0.06) * 10;
+    }
+
+    if (c.perceptionRadius < 15) {
+      penalty += (15 - c.perceptionRadius) * 0.05;
+    } else if (c.perceptionRadius > 70) {
+      penalty += (c.perceptionRadius - 70) * 0.05;
+    }
+
+    return penalty;
+  }
+
+  computeOptimizationFitness() {
+    const orderParam = this.getOrderParameter();
+    const collisionRate = this.collisionCount / Math.max(1, this.time);
+
+    let timeScore;
+    if (this.firstMajorityTime !== -1) {
+      timeScore = 1.0 - (this.firstMajorityTime / this.conf.maxSteps);
+    } else {
+      timeScore = 0;
+    }
+
+    const paramPenalty = this.computeParameterPenalty();
+
+    let constraintPenalty = 0;
+    const c = this.conf;
+    const flockingWeights = [c.cohesion, c.separation, c.alignment];
+    const minFlockWeight = Math.min(...flockingWeights);
+
+    if (c.targetWeight >= 0.5 * minFlockWeight) {
+      constraintPenalty += 1.0;
+    }
+
+    if (orderParam < 0.6) {
+      constraintPenalty += 1.0;
+    }
+
+    if (c.avoidance < 0.5) {
+      constraintPenalty += 0.5;
+    }
+
+    const fitness = 0.35 * orderParam
+                  + 0.35 * timeScore
+                  - 0.15 * collisionRate
+                  - 0.10 * paramPenalty
+                  - constraintPenalty;
+
+    return {
+      fitness: Math.max(0, fitness),
+      orderParam: orderParam,
+      timeScore: timeScore,
+      collisionRate: collisionRate,
+      paramPenalty: paramPenalty,
+      constraintPenalty: constraintPenalty
     };
   }
 
@@ -444,11 +518,19 @@ class Scene {
 
   neighbours(x, distanceThreshold) {
     let r = [];
+    const fovDegrees = this.conf.fovAngle;
+    const halfFovRadians = (fovDegrees / 2) * Math.PI / 180;
+    const fovThreshold = Math.cos(halfFovRadians);
     for (let p of this.swarm) {
       if (p.id == x.id) continue;
-
-      if (this.dist(p.pos, x.pos) <= distanceThreshold) {
-        r.push(p);
+      const d = this.dist(p.pos, x.pos);
+      if (d <= distanceThreshold && d > 0) {
+        const toNeighbor = this.wrap(p.pos, x.pos);
+        const toNeighborNorm = this.normalizeVector(toNeighbor);
+        const dot = x.dir[0] * toNeighborNorm[0] + x.dir[1] * toNeighborNorm[1];
+        if (dot >= fovThreshold) {
+          r.push(p);
+        }
       }
     }
     return r;
@@ -594,47 +676,71 @@ class Particle {
   }
 
   updateVector() {
+    const perceptionR = this.S.conf.perceptionRadius;
+    const maxForce = this.S.conf.maxForce;
+    const noiseStrength = this.S.conf.noiseStrength;
     const align_weight = this.S.conf.alignment;
     const cohesion_weight = this.S.conf.cohesion;
     const separation_weight = this.S.conf.separation;
     const avoidance_weight = this.S.conf.avoidance;
-    const perceptionR = this.S.conf.perceptionRadius;
+    const targetWeight = this.S.conf.targetWeight;
 
-    const align = this.multiplyVector(
-      this.alignmentVector(perceptionR),
-      align_weight
-    );
+    const currentVel = this.multiplyVector(this.dir, this.speed);
 
-    const cohesion = this.multiplyVector(
-      this.cohesionVector(perceptionR),
-      cohesion_weight
-    );
+    let steeringForce = [0, 0];
 
-    const separation = this.multiplyVector(
-      this.separationVector(perceptionR),
-      separation_weight
-    );
+    const alignNeighbors = this.S.neighbours(this, perceptionR);
+    if (alignNeighbors.length > 0) {
+      const avgDir = this.alignmentVector(perceptionR);
+      const desiredAlign = this.multiplyVector(avgDir, this.speed);
+      const steerAlign = this.multiplyVector(this.subtractVectors(desiredAlign, currentVel), align_weight);
+      steeringForce = this.addVectors(steeringForce, steerAlign);
+    }
 
-    const avoidance = this.multiplyVector(
-      this.avoidanceVector(),
-      avoidance_weight
-    );
+    const cohNeighbors = this.S.neighbours(this, perceptionR);
+    if (cohNeighbors.length > 0) {
+      const cohDir = this.cohesionVector(perceptionR);
+      const desiredCohesion = this.multiplyVector(cohDir, this.speed);
+      const steerCohesion = this.multiplyVector(this.subtractVectors(desiredCohesion, currentVel), cohesion_weight);
+      steeringForce = this.addVectors(steeringForce, steerCohesion);
+    }
 
-    const target = this.multiplyVector(
-      this.targetVector(),
-      this.S.conf.targetWeight
-    );
+    const sepNeighbors = this.S.neighbours(this, perceptionR);
+    if (sepNeighbors.length > 0) {
+      const sepDir = this.separationVector(perceptionR);
+      const desiredSeparation = this.multiplyVector(sepDir, this.speed);
+      const steerSeparation = this.multiplyVector(this.subtractVectors(desiredSeparation, currentVel), separation_weight);
+      steeringForce = this.addVectors(steeringForce, steerSeparation);
+    }
 
-    let newDir = this.addVectors(this.dir, align);
-    newDir = this.addVectors(newDir, cohesion);
-    newDir = this.addVectors(newDir, separation);
-    newDir = this.addVectors(newDir, avoidance);
-    newDir = this.addVectors(newDir, target);
+    const avoidDir = this.avoidanceVector();
+    if (avoidDir[0] !== 0 || avoidDir[1] !== 0) {
+      const desiredAvoidance = this.multiplyVector(avoidDir, this.speed);
+      const steerAvoidance = this.multiplyVector(this.subtractVectors(desiredAvoidance, currentVel), avoidance_weight);
+      steeringForce = this.addVectors(steeringForce, steerAvoidance);
+    }
 
-    this.dir = this.normalizeVector(newDir);
+    const targetDir = this.targetVector();
+    if (targetDir[0] !== 0 || targetDir[1] !== 0) {
+      const desiredTarget = this.multiplyVector(targetDir, this.speed);
+      const steerTarget = this.multiplyVector(this.subtractVectors(desiredTarget, currentVel), targetWeight);
+      steeringForce = this.addVectors(steeringForce, steerTarget);
+    }
 
-    const movement = this.multiplyVector(this.dir, this.speed);
-    this.pos = this.addVectors(this.pos, movement);
+    const noiseX = (Math.random() - 0.5) * 2 * noiseStrength;
+    const noiseY = (Math.random() - 0.5) * 2 * noiseStrength;
+    steeringForce = this.addVectors(steeringForce, [noiseX, noiseY]);
+
+    const steeringMag = Math.sqrt(steeringForce[0] * steeringForce[0] + steeringForce[1] * steeringForce[1]);
+    if (steeringMag > maxForce) {
+      steeringForce = this.multiplyVector(this.normalizeVector(steeringForce), maxForce);
+    }
+
+    const newVel = this.addVectors(currentVel, steeringForce);
+    this.dir = this.normalizeVector(newVel);
+    this.speed = Math.sqrt(newVel[0] * newVel[0] + newVel[1] * newVel[1]);
+
+    this.pos = this.addVectors(this.pos, newVel);
     this.pos = this.S.wrap(this.pos);
   }
 }

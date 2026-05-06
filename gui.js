@@ -29,6 +29,21 @@ let rangeMap = {
 		key : 'targetWeight',
 		rangeToModel : function(v){ return v/100 },
 		modelToRange : function(v){ return v*100 }
+	},
+	"maxF" : {
+		key : 'maxForce',
+		rangeToModel : function(v){ return v/1000 },
+		modelToRange : function(v){ return v*1000 }
+	},
+	"fov" : {
+		key : 'fovAngle',
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v }
+	},
+	"noise" : {
+		key : 'noiseStrength',
+		rangeToModel : function(v){ return v/1000 },
+		modelToRange : function(v){ return v*1000 }
 	}
 }
 
