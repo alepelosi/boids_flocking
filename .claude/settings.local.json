@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Rein\\\\documents\\\\mastery1\\\\semester2\\\\naco\\\\project\\\\boids_flocking\" -Recurse -Force)",
-      "Bash(Select-Object FullName)"
-    ]
-  }
-}
