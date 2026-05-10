@@ -1,17 +1,25 @@
+const MIN_SPEED = 0.5;
+const MAX_SPEED = 3.0;
+const MAX_ACCELERATION = 0.12;
+const MAX_OBSTACLE_ACCELERATION = 0.55;
+
 let canvas, S;
 let conf = {
   w: 800,
   h: 800,
   N: 100,
   zoom: 1,
-  perceptionRadius: 40,
-  cohesion: 0.05,
-  separation: 0.05,
-  alignment: 0.05,
-  avoidance: 0.05,
+  boidRadius: 5,
+  separationRadius: 24,
+  interactionRadius: 70,
+  obstaclePerceptionRadius: 90,
+  cohesion: 0.55,
+  separation: 0.75,
+  alignment: 0.75,
+  avoidance: 1.0,
   targetX: 700,
   targetY: 700,
-  targetWeight: 0.02,
+  targetWeight: 0.22,
   targetRadius: 60,
   numObstacles: 8,
   obstacleRadius: 40,
@@ -19,9 +27,11 @@ let conf = {
   maxSteps: 1000,
   majorityThreshold: 0.8,
   failurePenalty: 2,
-  maxForce: 0.05,
   fovAngle: 135,
-  noiseStrength: 0.015
+  avoidanceMargin: 10,
+  forwardOffset: 20,
+  randomWeight: 0.015,
+  showInteractionRadius: false
 };
 
 let rngState = conf.seed;
@@ -29,73 +39,6 @@ let rngState = conf.seed;
 function seededRandom() {
   rngState = (rngState * 1103515245 + 12345) & 0x7fffffff;
   return rngState / 0x7fffffff;
-}
-
-function seededRandomRange(min, max) {
-  return min + seededRandom() * (max - min);
-}
-
-function generateObstacles() {
-  const obstacles = [];
-  const margin = conf.obstacleRadius + 20;
-  const targetMargin = conf.targetRadius + 30;
-
-  for (let i = 0; i < conf.numObstacles; i++) {
-    let attempts = 0;
-    let valid = false;
-    let ox, oy;
-
-    while (!valid && attempts < 100) {
-      ox = seededRandomRange(margin, conf.w - margin);
-      oy = seededRandomRange(margin, conf.h - margin);
-
-      const distToOrigin = Math.sqrt(ox * ox + oy * oy);
-
-      if (distToOrigin > margin) {
-        valid = true;
-        for (let obs of obstacles) {
-          const dist = Math.sqrt(Math.pow(ox - obs.x, 2) + Math.pow(oy - obs.y, 2));
-          if (dist < conf.obstacleRadius * 2 + 20) {
-            valid = false;
-            break;
-          }
-        }
-      }
-      attempts++;
-    }
-
-    if (valid) {
-      obstacles.push({ x: ox, y: oy, radius: conf.obstacleRadius });
-    }
-  }
-  return obstacles;
-}
-
-function generateTarget(obstacles) {
-  const margin = conf.targetRadius + 30;
-
-  for (let attempts = 0; attempts < 100; attempts++) {
-    const tx = seededRandomRange(margin, conf.w - margin);
-    const ty = seededRandomRange(margin, conf.h - margin);
-
-    let valid = true;
-    for (let obs of obstacles) {
-      const dist = Math.sqrt(Math.pow(tx - obs.x, 2) + Math.pow(ty - obs.y, 2));
-      if (dist < obs.radius + conf.targetRadius + 20) {
-        valid = false;
-        break;
-      }
-    }
-
-    if (valid) {
-      const distToOrigin = Math.sqrt(tx * tx + ty * ty);
-      if (distToOrigin > conf.w * 0.6) {
-        return { x: tx, y: ty };
-      }
-    }
-  }
-
-  return { x: conf.targetX, y: conf.targetY };
 }
 
 class Canvas {
@@ -147,10 +90,10 @@ class Canvas {
     this.ctx.fillRect(0, 0, this.el.width, this.el.height);
   }
 
-  fillCircle(pos, col) {
+  fillCircle(pos, col, radius) {
     this.ctx.fillStyle = "#" + col;
     this.ctx.beginPath();
-    this.ctx.arc(pos[0], pos[1], 5, 0, 2 * Math.PI);
+    this.ctx.arc(pos[0], pos[1], radius, 0, 2 * Math.PI);
     this.ctx.stroke();
     this.ctx.fill();
   }
@@ -173,10 +116,7 @@ class Canvas {
     for (let p of this.S.swarm) {
       const startPoint = p.multiplyVector(p.pos, zoom);
 
-      let drawVec = p.multiplyVector(
-        p.dir,
-        6 * zoom
-      );
+      let drawVec = p.multiplyVector(p.dir, this.S.conf.boidRadius * 2.2 * zoom);
       drawVec = p.addVectors(startPoint, drawVec);
 
       ctx.moveTo(startPoint[0], startPoint[1]);
@@ -190,8 +130,10 @@ class Canvas {
     this.drawObstacles();
     this.drawTarget();
     for (let p of this.S.swarm) {
-      this.fillCircle(p.pos, "ff0000");
-      this.drawCircle(p.pos, "aaaaaa", this.S.conf.perceptionRadius);
+      if (this.S.conf.showInteractionRadius) {
+        this.drawCircle(p.pos, "aaaaaa", this.S.conf.interactionRadius);
+      }
+      this.fillCircle(p.pos, "ff0000", this.S.conf.boidRadius);
     }
     this.drawDirections();
   }
@@ -202,6 +144,7 @@ class Scene {
     this.w = conf.w;
     this.h = conf.h;
     this.conf = conf;
+    this.defaultTarget = [conf.targetX, conf.targetY];
     this.swarm = [];
     this.obstacles = [];
     this.collisionCount = 0;
@@ -211,6 +154,14 @@ class Scene {
     this.generateTarget();
     this.makeSwarm();
     this.time = 0;
+  }
+
+  random() {
+    return seededRandom();
+  }
+
+  randomRange(min, max) {
+    return min + this.random() * (max - min);
   }
 
   generateObstacles() {
@@ -223,8 +174,8 @@ class Scene {
       let ox, oy;
 
       while (!valid && attempts < 100) {
-        ox = margin + seededRandom() * (this.w - 2 * margin);
-        oy = margin + seededRandom() * (this.h - 2 * margin);
+        ox = this.randomRange(margin, this.w - margin);
+        oy = this.randomRange(margin, this.h - margin);
 
         const distToOrigin = Math.sqrt(ox * ox + oy * oy);
 
@@ -247,38 +198,77 @@ class Scene {
     }
   }
 
-  generateTarget() {
+  targetOverlapsObstacle(tx, ty) {
+    for (let obs of this.obstacles) {
+      const dist = Math.sqrt(Math.pow(tx - obs.x, 2) + Math.pow(ty - obs.y, 2));
+      if (dist < obs.radius + this.conf.targetRadius + 20) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  setTarget(tx, ty) {
+    this.conf.targetX = Math.max(0, Math.min(this.w, tx));
+    this.conf.targetY = Math.max(0, Math.min(this.h, ty));
+  }
+
+  generateTarget(previousTarget = undefined) {
     const margin = this.conf.targetRadius + 30;
 
     for (let attempts = 0; attempts < 100; attempts++) {
-      const tx = margin + seededRandom() * (this.w - 2 * margin);
-      const ty = margin + seededRandom() * (this.h - 2 * margin);
+      const tx = this.randomRange(margin, this.w - margin);
+      const ty = this.randomRange(margin, this.h - margin);
 
-      let valid = true;
-      for (let obs of this.obstacles) {
-        const dist = Math.sqrt(Math.pow(tx - obs.x, 2) + Math.pow(ty - obs.y, 2));
-        if (dist < obs.radius + this.conf.targetRadius + 20) {
-          valid = false;
-          break;
+      if (!this.targetOverlapsObstacle(tx, ty)) {
+        if (
+          previousTarget &&
+          this.euclideanDist([tx, ty], previousTarget) < this.conf.targetRadius * 2
+        ) {
+          continue;
         }
-      }
 
-      if (valid) {
         const distToOrigin = Math.sqrt(tx * tx + ty * ty);
         if (distToOrigin > this.w * 0.6) {
-          this.conf.targetX = tx;
-          this.conf.targetY = ty;
+          this.setTarget(tx, ty);
           return;
         }
       }
     }
+
+    const fallbackTargets = [
+      this.defaultTarget,
+      [this.w - margin, this.h - margin],
+      [margin, this.h - margin],
+      [this.w - margin, margin],
+      [this.w / 2, this.h / 2]
+    ];
+
+    for (const [tx, ty] of fallbackTargets) {
+      if (!this.targetOverlapsObstacle(tx, ty)) {
+        this.setTarget(tx, ty);
+        return;
+      }
+    }
+
+    this.setTarget(this.defaultTarget[0], this.defaultTarget[1]);
+  }
+
+  generateNewTarget() {
+    const previousTarget = [this.conf.targetX, this.conf.targetY];
+    this.generateTarget(previousTarget);
+    this.firstMajorityTime = -1;
   }
 
   reset() {
     this.swarm = [];
+    this.obstacles = [];
     this.collisionCount = 0;
     this.firstMajorityTime = -1;
     this.time = 0;
+    rngState = this.conf.seed;
+    this.generateObstacles();
+    this.generateTarget();
     this.makeSwarm();
   }
 
@@ -297,8 +287,9 @@ class Scene {
     let sumDirX = 0;
     let sumDirY = 0;
     for (let p of this.swarm) {
-      sumDirX += p.dir[0];
-      sumDirY += p.dir[1];
+      const dir = p.normalizeVector(p.vel.slice());
+      sumDirX += dir[0];
+      sumDirY += dir[1];
     }
 
     const magnitude = Math.sqrt(sumDirX * sumDirX + sumDirY * sumDirY);
@@ -320,12 +311,38 @@ class Scene {
     return count / this.swarm.length;
   }
 
+  getCrowdingPenalty() {
+    if (this.swarm.length < 2) return 0;
+
+    let penalty = 0;
+    const softSpacing = this.conf.separationRadius;
+    const hardSpacing = this.conf.boidRadius * 3;
+
+    for (let i = 0; i < this.swarm.length; i++) {
+      for (let j = i + 1; j < this.swarm.length; j++) {
+        const d = this.dist(this.swarm[i].pos, this.swarm[j].pos);
+
+        if (d < softSpacing) {
+          const crowding = (softSpacing - d) / softSpacing;
+          penalty += crowding * crowding;
+        }
+
+        if (d < hardSpacing) {
+          const overlap = (hardSpacing - d) / hardSpacing;
+          penalty += 2 * overlap * overlap;
+        }
+      }
+    }
+
+    return penalty / this.swarm.length;
+  }
+
   checkCollisions() {
     let collisions = 0;
     for (let p of this.swarm) {
       for (let obs of this.obstacles) {
-        const d = this.dist(p.pos, [obs.x, obs.y]);
-        if (d < obs.radius + 5) {
+        const d = this.euclideanDist(p.pos, [obs.x, obs.y]);
+        if (d < obs.radius + this.conf.boidRadius) {
           collisions++;
           break;
         }
@@ -337,20 +354,30 @@ class Scene {
 
   computeFitness() {
     const orderParam = this.getOrderParameter();
-    const collisionPenalty = this.collisionCount / Math.max(1, this.time);
+    const targetSuccess = this.targetSuccess();
+    const crowdingPenalty = this.getCrowdingPenalty();
+    const collisionRate = this.collisionCount / Math.max(1, this.time * this.swarm.length);
 
-    let timePenalty;
+    let timeScore;
     if (this.firstMajorityTime !== -1) {
-      timePenalty = this.firstMajorityTime / this.conf.maxSteps;
+      timeScore = 1.0 - this.firstMajorityTime / this.conf.maxSteps;
     } else {
-      timePenalty = 1.0 + this.conf.failurePenalty;
+      timeScore = 0.0;
     }
 
-    const fitness = 0.5 * timePenalty + 0.25 * orderParam - 0.25 * collisionPenalty;
+    const fitness = 0.4 * timeScore
+                  + 0.3 * orderParam
+                  + 0.2 * targetSuccess
+                  - 0.1 * collisionRate
+                  - 0.2 * crowdingPenalty;
 
     return {
-      fitness: fitness,
-      timePenalty: timePenalty,
+      fitness: Math.max(0, fitness),
+      rawFitness: fitness,
+      timeScore: timeScore,
+      targetSuccess: targetSuccess,
+      crowdingPenalty: crowdingPenalty,
+      collisionRate: collisionRate,
       orderParameter: orderParam,
       collisions: this.collisionCount,
       firstMajorityTime: this.firstMajorityTime
@@ -360,96 +387,78 @@ class Scene {
   computeParameterPenalty() {
     let penalty = 0;
     const c = this.conf;
-    const flockingWeights = [c.cohesion, c.separation, c.alignment];
-    const maxFlock = Math.max(...flockingWeights);
-    const minFlock = Math.min(...flockingWeights);
-    const ratio = maxFlock / minFlock;
+    const weights = [c.cohesion, c.alignment, c.separation, c.targetWeight, c.avoidance];
+    const maxWeight = Math.max(...weights);
+    const minPositiveWeight = Math.min(...weights.filter((w) => w > 1e-9));
 
-    if (ratio > 5) {
-      penalty += (ratio - 5) * 0.1;
+    if (minPositiveWeight > 0) {
+      const ratio = maxWeight / minPositiveWeight;
+      if (ratio > 50) {
+        penalty += (ratio - 50) * 0.002;
+      }
     }
 
-    if (c.maxForce > 0.06) {
-      penalty += (c.maxForce - 0.06) * 10;
+    if (c.separationRadius >= c.interactionRadius) {
+      penalty += (c.separationRadius - c.interactionRadius + 1) * 0.02;
     }
 
-    if (c.perceptionRadius < 15) {
-      penalty += (15 - c.perceptionRadius) * 0.05;
-    } else if (c.perceptionRadius > 70) {
-      penalty += (c.perceptionRadius - 70) * 0.05;
+    if (c.interactionRadius > c.obstaclePerceptionRadius) {
+      penalty += (c.interactionRadius - c.obstaclePerceptionRadius) * 0.01;
     }
 
     return penalty;
   }
 
   computeOptimizationFitness() {
-    const orderParam = this.getOrderParameter();
-    const collisionRate = this.collisionCount / Math.max(1, this.time);
-
-    let timeScore;
-    if (this.firstMajorityTime !== -1) {
-      timeScore = 1.0 - (this.firstMajorityTime / this.conf.maxSteps);
-    } else {
-      timeScore = 0;
-    }
-
+    const base = this.computeFitness();
     const paramPenalty = this.computeParameterPenalty();
 
-    let constraintPenalty = 0;
-    const c = this.conf;
-    const flockingWeights = [c.cohesion, c.separation, c.alignment];
-    const minFlockWeight = Math.min(...flockingWeights);
-
-    if (c.targetWeight >= 0.5 * minFlockWeight) {
-      constraintPenalty += 1.0;
-    }
-
-    if (orderParam < 0.6) {
-      constraintPenalty += 1.0;
-    }
-
-    if (c.avoidance < 0.05) {
-      constraintPenalty += 0.5;
-    }
-
-    const fitness = 0.35 * orderParam
-                  + 0.35 * timeScore
-                  - 0.15 * collisionRate
-                  - 0.10 * paramPenalty
-                  - constraintPenalty;
+    const fitness = base.rawFitness
+                  - 0.1 * paramPenalty
+                  - 0.25 * base.crowdingPenalty;
 
     return {
       fitness: Math.max(0, fitness),
-      orderParam: orderParam,
-      timeScore: timeScore,
-      collisionRate: collisionRate,
+      orderParam: base.orderParameter,
+      timeScore: base.timeScore,
+      targetSuccess: base.targetSuccess,
+      crowdingPenalty: base.crowdingPenalty,
+      collisionRate: base.collisionRate,
       paramPenalty: paramPenalty,
-      constraintPenalty: constraintPenalty
+      weights: this.getBehaviourWeightVector()
     };
+  }
+
+  getBehaviourWeightVector() {
+    const c = this.conf;
+    return [c.cohesion, c.alignment, c.separation, c.targetWeight, c.avoidance, c.randomWeight];
+  }
+
+  wrapCoordinate(value, size) {
+    if (size <= 0) return value;
+    return ((value % size) + size) % size;
+  }
+
+  minimalImageDelta(delta, size) {
+    if (size <= 0) return delta;
+    return ((delta + size / 2) % size + size) % size - size / 2;
   }
 
   wrap(pos, reference = undefined) {
     if (typeof reference == "undefined") {
-      if (pos[0] < 0) pos[0] += this.w;
-      if (pos[1] < 0) pos[1] += this.h;
-      if (pos[0] > this.w) pos[0] -= this.w;
-      if (pos[1] > this.h) pos[1] -= this.h;
-      return pos;
+      return [
+        this.wrapCoordinate(pos[0], this.w),
+        this.wrapCoordinate(pos[1], this.h)
+      ];
     }
 
-    const pos2 = pos.slice();
-    let dx = pos2[0] - reference[0],
-      dy = pos2[1] - reference[1];
-    if (dx > this.w / 2) pos2[0] -= this.w;
-    if (dx < -this.w / 2) pos2[0] += this.w;
-    if (dy > this.h / 2) pos2[1] -= this.h;
-    if (dy < -this.h / 2) pos2[1] += this.h;
-
-    return pos2;
+    const dx = this.minimalImageDelta(pos[0] - reference[0], this.w);
+    const dy = this.minimalImageDelta(pos[1] - reference[1], this.h);
+    return [reference[0] + dx, reference[1] + dy];
   }
 
   addParticle() {
-    const i = this.swarm.length + 1;
+    const i = this.swarm.length;
     this.swarm.push(new Particle(this, i));
   }
 
@@ -458,63 +467,57 @@ class Scene {
   }
 
   randomPosition() {
-    let x = Math.random() * this.w;
-    let y = Math.random() * this.h;
-    return [x, y];
-  }
+    for (let attempts = 0; attempts < 1000; attempts++) {
+      const x = this.randomRange(this.conf.boidRadius, this.w - this.conf.boidRadius);
+      const y = this.randomRange(this.conf.boidRadius, this.h - this.conf.boidRadius);
+      const pos = [x, y];
+      let valid = true;
 
-  randomDirection(dim = 2) {
-    let dir = [];
-    while (dim-- > 0) {
-      dir.push(this.sampleNorm());
+      for (const obs of this.obstacles) {
+        if (this.euclideanDist(pos, [obs.x, obs.y]) < obs.radius + this.conf.boidRadius + this.conf.avoidanceMargin) {
+          valid = false;
+          break;
+        }
+      }
+
+      if (this.euclideanDist(pos, [this.conf.targetX, this.conf.targetY]) < this.conf.targetRadius + this.conf.boidRadius) {
+        valid = false;
+      }
+
+      if (valid) return pos;
     }
-    this.normalizeVector(dir);
-    return dir;
+
+    return [this.random() * this.w, this.random() * this.h];
   }
 
   normalizeVector(a) {
-    if (a[0] == 0 && a[1] == 0) return [0, 0];
-
     let norm = 0;
     for (let i = 0; i < a.length; i++) {
       norm += a[i] * a[i];
     }
     norm = Math.sqrt(norm);
-    for (let i = 0; i < a.length; i++) {
-      a[i] /= norm;
+
+    if (norm < 1e-12) {
+      return a.map(() => 0);
     }
-    return a;
+
+    return a.map((x) => x / norm);
   }
 
-  sampleNorm(mu = 0, sigma = 1) {
-    let u1 = Math.random();
-    let u2 = Math.random();
-    let z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(Math.PI * 2 * u2);
-    return z0 * sigma + mu;
+  euclideanDist(pos1, pos2) {
+    const dx = pos1[0] - pos2[0];
+    const dy = pos1[1] - pos2[1];
+    return Math.sqrt(dx * dx + dy * dy);
   }
 
   dist(pos1, pos2) {
-    let dx = pos1[0] - pos2[0];
-    if (dx > this.w / 2) {
-      dx -= this.w;
-    }
-    if (dx < -this.w / 2) {
-      dx += this.w;
-    }
-
-    let dy = pos1[1] - pos2[1];
-    if (dy > this.h / 2) {
-      dy -= this.h;
-    }
-    if (dy < -this.h / 2) {
-      dy += this.h;
-    }
-
+    const dx = this.minimalImageDelta(pos1[0] - pos2[0], this.w);
+    const dy = this.minimalImageDelta(pos1[1] - pos2[1], this.h);
     const dist = Math.sqrt(dx * dx + dy * dy);
     return dist;
   }
 
-  neighbours(x, distanceThreshold) {
+  neighbours(x, distanceThreshold, useFieldOfView = true) {
     let r = [];
     const fovDegrees = this.conf.fovAngle;
     const halfFovRadians = (fovDegrees / 2) * Math.PI / 180;
@@ -523,7 +526,16 @@ class Scene {
       if (p.id == x.id) continue;
       const d = this.dist(p.pos, x.pos);
       if (d <= distanceThreshold && d > 0) {
-        const toNeighbor = this.wrap(p.pos, x.pos);
+        if (!useFieldOfView) {
+          r.push(p);
+          continue;
+        }
+
+        const neighborPos = this.wrap(p.pos, x.pos);
+        const toNeighbor = [
+          neighborPos[0] - x.pos[0],
+          neighborPos[1] - x.pos[1]
+        ];
         const toNeighborNorm = this.normalizeVector(toNeighbor);
         const dot = x.dir[0] * toNeighborNorm[0] + x.dir[1] * toNeighborNorm[1];
         if (dot >= fovThreshold) {
@@ -539,6 +551,9 @@ class Scene {
       p.updateVector();
     }
     this.checkCollisions();
+    for (let p of this.swarm) {
+      p.resolveObstaclePenetration();
+    }
 
     if (this.firstMajorityTime === -1) {
       const currentSuccess = this.targetSuccess();
@@ -554,10 +569,16 @@ class Scene {
 class Particle {
   constructor(Scene, i) {
     this.S = Scene;
-    this.speed = 1;
     this.id = i;
     this.pos = this.S.randomPosition();
-    this.dir = this.S.randomDirection();
+    const angle = this.S.random() * 2 * Math.PI;
+    const speed = this.S.randomRange(MIN_SPEED, MAX_SPEED);
+    this.vel = [
+      Math.cos(angle) * speed,
+      Math.sin(angle) * speed
+    ];
+    this.speed = speed;
+    this.dir = this.normalizeVector(this.vel.slice());
   }
 
   addVectors(a, b) {
@@ -578,49 +599,6 @@ class Particle {
     return out;
   }
 
-  targetVector() {
-    const target = [this.S.conf.targetX, this.S.conf.targetY];
-    const tpos = this.S.wrap(target, this.pos);
-
-    const dx = tpos[0] - this.pos[0];
-    const dy = tpos[1] - this.pos[1];
-    const d = Math.sqrt(dx * dx + dy * dy);
-
-    if (d <= this.S.conf.targetRadius) return [0, 0];
-
-    const slowRadius = 100;
-    let strength = 1.0;
-
-    if (d < slowRadius) {
-      strength =
-        (d - this.S.conf.targetRadius) /
-        (slowRadius - this.S.conf.targetRadius);
-      strength = Math.max(0, Math.min(1, strength));
-    }
-
-    const dir = [dx / d, dy / d];
-    return this.multiplyVector(dir, strength);
-  }
-
-  avoidanceVector() {
-    let steer = [0, 0];
-    const perceptionR = this.S.conf.perceptionRadius;
-
-    for (let obs of this.S.obstacles) {
-      const dx = this.pos[0] - obs.x;
-      const dy = this.pos[1] - obs.y;
-      const d = Math.sqrt(dx * dx + dy * dy);
-
-      if (d < perceptionR + obs.radius && d > 0) {
-        const strength = (perceptionR + obs.radius - d) / perceptionR;
-        const dir = [dx / d, dy / d];
-        steer = this.addVectors(steer, this.multiplyVector(dir, strength));
-      }
-    }
-
-    return this.S.normalizeVector(steer);
-  }
-
   multiplyVector(a, c) {
     return a.map((x) => x * c);
   }
@@ -629,116 +607,292 @@ class Particle {
     return this.S.normalizeVector(a);
   }
 
-  alignmentVector(neighborRadius) {
-    const neighbors = this.S.neighbours(this, neighborRadius);
-    if (neighbors.length === 0) return [0, 0];
-
-    let avg = [0, 0];
-    for (const n of neighbors) {
-      avg = this.addVectors(avg, n.dir);
-    }
-    avg = this.multiplyVector(avg, 1 / neighbors.length);
-    return this.normalizeVector(avg);
+  magnitude(a) {
+    return Math.sqrt(a[0] * a[0] + a[1] * a[1]);
   }
 
-  cohesionVector(neighborRadius) {
-    const neighbors = this.S.neighbours(this, neighborRadius);
-    if (neighbors.length === 0) return [0, 0];
-
-    let avgPos = [0, 0];
-    for (const n of neighbors) {
-      const npos = this.S.wrap(n.pos, this.pos);
-      avgPos = this.addVectors(avgPos, npos);
-    }
-    avgPos = this.multiplyVector(avgPos, 1 / neighbors.length);
-
-    const steer = this.subtractVectors(avgPos, this.pos);
-    return this.normalizeVector(steer);
+  dot(a, b) {
+    return a[0] * b[0] + a[1] * b[1];
   }
 
-  separationVector(neighborRadius) {
-    const neighbors = this.S.neighbours(this, neighborRadius);
+  clipMagnitude(v, minMag, maxMag) {
+    const mag = this.magnitude(v);
+
+    if (mag < 1e-8) {
+      return [0, 0];
+    }
+
+    const lower = Math.min(minMag, maxMag);
+    const upper = Math.max(minMag, maxMag);
+    const dir = this.normalizeVector(v.slice());
+
+    if (mag > upper) {
+      return this.multiplyVector(dir, upper);
+    }
+
+    if (mag < lower) {
+      return this.multiplyVector(dir, lower);
+    }
+
+    return v;
+  }
+
+  limitMagnitude(v, maxMag) {
+    const mag = this.magnitude(v);
+
+    if (mag < 1e-8 || mag <= maxMag) {
+      return v;
+    }
+
+    return this.multiplyVector(this.normalizeVector(v), maxMag);
+  }
+
+  cohesionVector() {
+    const neighbors = this.S.neighbours(this, this.S.conf.interactionRadius);
     if (neighbors.length === 0) return [0, 0];
 
-    let steer = [0, 0];
+    let cx = 0;
+    let cy = 0;
+
     for (const n of neighbors) {
       const npos = this.S.wrap(n.pos, this.pos);
-      const diff = this.subtractVectors(this.pos, npos);
-      const d = this.S.dist(this.pos, n.pos);
+      cx += npos[0];
+      cy += npos[1];
+    }
 
-      if (d > 1e-9) {
-        steer = this.addVectors(steer, this.multiplyVector(diff, 1 / d));
+    cx /= neighbors.length;
+    cy /= neighbors.length;
+
+    const toCenter = [cx - this.pos[0], cy - this.pos[1]];
+    const d = this.magnitude(toCenter);
+
+    if (d < 1e-8) {
+      return [0, 0];
+    }
+
+    const strength = Math.min(d / this.S.conf.interactionRadius, 1);
+    return this.multiplyVector(this.normalizeVector(toCenter), strength);
+  }
+
+  alignmentVector() {
+    const neighbors = this.S.neighbours(this, this.S.conf.interactionRadius);
+    if (neighbors.length === 0) return [0, 0];
+
+    let vx = 0;
+    let vy = 0;
+
+    for (const n of neighbors) {
+      vx += n.vel[0];
+      vy += n.vel[1];
+    }
+
+    vx /= neighbors.length;
+    vy /= neighbors.length;
+
+    return [vx - this.vel[0], vy - this.vel[1]];
+  }
+
+  separationVector() {
+    const neighbors = this.S.neighbours(this, this.S.conf.separationRadius, false);
+    if (neighbors.length === 0) return [0, 0];
+
+    let sx = 0;
+    let sy = 0;
+    const eps = 1e-6;
+
+    for (const n of neighbors) {
+      const npos = this.S.wrap(n.pos, this.pos);
+      const dx = this.pos[0] - npos[0];
+      const dy = this.pos[1] - npos[1];
+      const d2 = dx * dx + dy * dy + eps;
+
+      sx += (dx / d2) * this.S.conf.separationRadius;
+      sy += (dy / d2) * this.S.conf.separationRadius;
+    }
+
+    return this.limitMagnitude([sx, sy], MAX_SPEED);
+  }
+
+  targetVector() {
+    const target = [
+      this.S.conf.targetX,
+      this.S.conf.targetY
+    ];
+    const tpos = this.S.wrap(target, this.pos);
+
+    const dx = tpos[0] - this.pos[0];
+    const dy = tpos[1] - this.pos[1];
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    if (d < this.S.conf.targetRadius) {
+      return [0, 0];
+    }
+
+    const strength = Math.min(
+      (d - this.S.conf.targetRadius) / Math.max(this.S.w, this.S.h),
+      1
+    );
+    return this.multiplyVector(this.normalizeVector([dx, dy]), strength);
+  }
+
+  obstacleAvoidanceVector() {
+    const c = this.S.conf;
+    if (this.magnitude(this.vel) < 1e-8) return [0, 0];
+    const forward = this.normalizeVector(this.vel.slice());
+
+    let bestAvoid = [0, 0];
+    let bestUrgency = 0;
+    const fovCos = Math.cos((c.fovAngle * Math.PI / 180) / 2);
+
+    for (const obs of this.S.obstacles) {
+      const toObs = [obs.x - this.pos[0], obs.y - this.pos[1]];
+      const distToCenter = this.magnitude(toObs);
+      const safeRadius = obs.radius + c.avoidanceMargin + c.boidRadius;
+      const nearRadius = safeRadius + c.boidRadius * 5;
+
+      if (distToCenter < nearRadius) {
+        const away = distToCenter > 1e-6
+          ? this.normalizeVector([-toObs[0], -toObs[1]])
+          : [-forward[1], forward[0]];
+        const penetration = Math.max(0, safeRadius - distToCenter);
+        const closeness = (nearRadius - distToCenter) / nearRadius;
+        const escapeVec = this.multiplyVector(
+          away,
+          MAX_SPEED * (0.6 + closeness + penetration / safeRadius)
+        );
+        const urgency = 0.8 + closeness + penetration / safeRadius;
+
+        if (urgency > bestUrgency) {
+          bestUrgency = urgency;
+          bestAvoid = escapeVec;
+        }
+        continue;
+      }
+
+      if (distToCenter > c.obstaclePerceptionRadius + obs.radius + c.avoidanceMargin) {
+        continue;
+      }
+
+      const proj = this.dot(toObs, forward);
+
+      if (proj <= 0 || proj > c.obstaclePerceptionRadius) {
+        continue;
+      }
+
+      const toObsDir = this.normalizeVector(toObs.slice());
+      const cosAngle = this.dot(forward, toObsDir);
+      if (cosAngle < fovCos) {
+        continue;
+      }
+
+      const closestPoint = [
+        this.pos[0] + proj * forward[0],
+        this.pos[1] + proj * forward[1]
+      ];
+
+      const latOffset = [
+        obs.x - closestPoint[0],
+        obs.y - closestPoint[1]
+      ];
+
+      const latDist = this.magnitude(latOffset);
+
+      if (latDist >= safeRadius) {
+        continue;
+      }
+
+      let latDir;
+      if (latDist > 1e-6) {
+        latDir = this.normalizeVector([-latOffset[0], -latOffset[1]]);
+      } else {
+        latDir = [-forward[1], forward[0]];
+      }
+
+      const avoidPoint = [
+        obs.x + safeRadius * latDir[0] + c.forwardOffset * forward[0],
+        obs.y + safeRadius * latDir[1] + c.forwardOffset * forward[1]
+      ];
+
+      const avoidVec = [
+        avoidPoint[0] - this.pos[0],
+        avoidPoint[1] - this.pos[1]
+      ];
+
+      const urgency = 1 - proj / c.obstaclePerceptionRadius;
+
+      if (urgency > bestUrgency) {
+        bestUrgency = urgency;
+        bestAvoid = this.limitMagnitude(
+          this.multiplyVector(avoidVec, urgency),
+          MAX_SPEED * 2
+        );
       }
     }
-    return this.normalizeVector(steer);
+
+    return bestAvoid;
+  }
+
+  randomVector() {
+    const angle = this.S.random() * 2 * Math.PI;
+    return [Math.cos(angle), Math.sin(angle)];
+  }
+
+  resolveObstaclePenetration() {
+    for (const obs of this.S.obstacles) {
+      const dx = this.pos[0] - obs.x;
+      const dy = this.pos[1] - obs.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const minD = obs.radius + this.S.conf.boidRadius;
+
+      if (d > 1e-6 && d < minD) {
+        const push = minD - d;
+        const outward = [dx / d, dy / d];
+        this.pos[0] += outward[0] * push;
+        this.pos[1] += outward[1] * push;
+
+        const inwardSpeed = this.dot(this.vel, outward);
+        if (inwardSpeed < 0) {
+          this.vel = this.subtractVectors(
+            this.vel,
+            this.multiplyVector(outward, inwardSpeed)
+          );
+        }
+      }
+    }
   }
 
   updateVector() {
-    const perceptionR = this.S.conf.perceptionRadius;
-    const maxForce = this.S.conf.maxForce;
-    const noiseStrength = this.S.conf.noiseStrength;
-    const align_weight = this.S.conf.alignment;
-    const cohesion_weight = this.S.conf.cohesion;
-    const separation_weight = this.S.conf.separation;
-    const avoidance_weight = this.S.conf.avoidance;
-    const targetWeight = this.S.conf.targetWeight;
+    const c = this.S.conf;
 
-    const currentVel = this.multiplyVector(this.dir, this.speed);
+    const C = this.cohesionVector();
+    const A = this.alignmentVector();
+    const S = this.separationVector();
+    const T = this.targetVector();
+    const O = this.obstacleAvoidanceVector();
+    const R = this.randomVector();
 
-    let steeringForce = [0, 0];
+    let V = [0, 0];
+    const obstacleResponse = this.magnitude(O) > 1e-6;
 
-    const alignNeighbors = this.S.neighbours(this, perceptionR);
-    if (alignNeighbors.length > 0) {
-      const avgDir = this.alignmentVector(perceptionR);
-      const desiredAlign = this.multiplyVector(avgDir, this.speed);
-      const steerAlign = this.multiplyVector(this.subtractVectors(desiredAlign, currentVel), align_weight);
-      steeringForce = this.addVectors(steeringForce, steerAlign);
-    }
+    V = this.addVectors(V, this.multiplyVector(C, c.cohesion));
+    V = this.addVectors(V, this.multiplyVector(A, c.alignment));
+    V = this.addVectors(V, this.multiplyVector(S, c.separation));
+    V = this.addVectors(V, this.multiplyVector(T, c.targetWeight));
+    V = this.addVectors(V, this.multiplyVector(O, c.avoidance));
+    V = this.addVectors(V, this.multiplyVector(R, c.randomWeight));
 
-    const cohNeighbors = this.S.neighbours(this, perceptionR);
-    if (cohNeighbors.length > 0) {
-      const cohDir = this.cohesionVector(perceptionR);
-      const desiredCohesion = this.multiplyVector(cohDir, this.speed);
-      const steerCohesion = this.multiplyVector(this.subtractVectors(desiredCohesion, currentVel), cohesion_weight);
-      steeringForce = this.addVectors(steeringForce, steerCohesion);
-    }
+    // Like the reference sketch, behaviours nudge velocity over time.
+    const maxAcceleration = obstacleResponse
+      ? MAX_OBSTACLE_ACCELERATION
+      : MAX_ACCELERATION;
+    V = this.addVectors(this.vel, this.limitMagnitude(V, maxAcceleration));
+    V = this.clipMagnitude(V, MIN_SPEED, MAX_SPEED);
 
-    const sepNeighbors = this.S.neighbours(this, perceptionR);
-    if (sepNeighbors.length > 0) {
-      const sepDir = this.separationVector(perceptionR);
-      const desiredSeparation = this.multiplyVector(sepDir, this.speed);
-      const steerSeparation = this.multiplyVector(this.subtractVectors(desiredSeparation, currentVel), separation_weight);
-      steeringForce = this.addVectors(steeringForce, steerSeparation);
-    }
+    this.vel = V;
+    this.speed = this.magnitude(V);
+    this.dir = this.normalizeVector(V.slice());
 
-    const avoidDir = this.avoidanceVector();
-    if (avoidDir[0] !== 0 || avoidDir[1] !== 0) {
-      const desiredAvoidance = this.multiplyVector(avoidDir, this.speed);
-      const steerAvoidance = this.multiplyVector(this.subtractVectors(desiredAvoidance, currentVel), avoidance_weight);
-      steeringForce = this.addVectors(steeringForce, steerAvoidance);
-    }
-
-    const targetDir = this.targetVector();
-    if (targetDir[0] !== 0 || targetDir[1] !== 0) {
-      const desiredTarget = this.multiplyVector(targetDir, this.speed);
-      const steerTarget = this.multiplyVector(this.subtractVectors(desiredTarget, currentVel), targetWeight);
-      steeringForce = this.addVectors(steeringForce, steerTarget);
-    }
-
-    const noiseX = (Math.random() - 0.5) * 2 * noiseStrength;
-    const noiseY = (Math.random() - 0.5) * 2 * noiseStrength;
-    steeringForce = this.addVectors(steeringForce, [noiseX, noiseY]);
-
-    const steeringMag = Math.sqrt(steeringForce[0] * steeringForce[0] + steeringForce[1] * steeringForce[1]);
-    if (steeringMag > maxForce) {
-      steeringForce = this.multiplyVector(this.normalizeVector(steeringForce), maxForce);
-    }
-
-    const newVel = this.addVectors(currentVel, steeringForce);
-    this.dir = this.normalizeVector(newVel);
-    this.speed = Math.sqrt(newVel[0] * newVel[0] + newVel[1] * newVel[1]);
-
-    this.pos = this.addVectors(this.pos, newVel);
+    this.pos = this.addVectors(this.pos, this.vel);
     this.pos = this.S.wrap(this.pos);
   }
 }

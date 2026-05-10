@@ -2,38 +2,57 @@
 let rangeMap = {
 	"wa" : {
 		key : 'alignment',
-		rangeToModel : function(v){ return v/100 },
-		modelToRange : function(v){ return v*100 }
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(3) }
 	},
 	"wc" : {
 		key : 'cohesion',
-		rangeToModel : function(v){ return v/100 },
-		modelToRange : function(v){ return v*100 }
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(3) }
 	},
 	"ws" : {
 		key : 'separation',
-		rangeToModel : function(v){ return v/100 },
-		modelToRange : function(v){ return v*100 }
-	},
-	"wav" : {
-		key : 'avoidance',
-		rangeToModel : function(v){ return v/100 },
-		modelToRange : function(v){ return v*100 }
-	},
-	"Rp" : {
-		key : 'perceptionRadius',
 		rangeToModel : function(v){ return v },
-		modelToRange : function(v){ return v }
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(3) }
 	},
 	"wt" : {
 		key : 'targetWeight',
-		rangeToModel : function(v){ return v/100 },
-		modelToRange : function(v){ return v*100 }
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(3) }
 	},
-	"maxF" : {
-		key : 'maxForce',
-		rangeToModel : function(v){ return v/100 },
-		modelToRange : function(v){ return v*100 }
+	"wo" : {
+		key : 'avoidance',
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(3) }
+	},
+	"wr" : {
+		key : 'randomWeight',
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(3) }
+	},
+	"rSep" : {
+		key : 'separationRadius',
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(0) }
+	},
+	"rInt" : {
+		key : 'interactionRadius',
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(0) }
+	},
+	"rObs" : {
+		key : 'obstaclePerceptionRadius',
+		rangeToModel : function(v){ return v },
+		modelToRange : function(v){ return v },
+		bubbleText : function(v){ return v.toFixed(0) }
 	}
 }
 
@@ -74,17 +93,7 @@ function sliderInput(){
 
 
 	}
-
 }
-
-	function initCanvas(){
-
-		const canvasID = "canvasModel"
-		document.getElementById(canvasID).innerHTML = ""
-		sim.helpClasses["canvas"] = true
-		sim.Cim = new CPM.Canvas( sim.C, {zoom:config.simsettings.zoom, parentElement: document.getElementById(canvasID) } )
-		document.getElementById("time").innerHTML = 0
-	}
 
 
 function resetSim(){
@@ -92,7 +101,49 @@ function resetSim(){
 	running = false
 	S.reset()
 	sliderInput()
+	document.getElementById("time").innerHTML = S.time
+	updateMetrics()
+	canvas.drawSwarm()
 	setPlayPause()
+}
+
+function applyWeightsToSimulation(weights, options = {}){
+
+	if( !weights ){
+		throw new Error("No weights were provided")
+	}
+
+	const shouldReset = options.reset !== false
+	const appliedWeights = {}
+
+	for( const key of Object.keys(weights) ){
+		if( Object.prototype.hasOwnProperty.call(S.conf, key) ){
+			appliedWeights[key] = weights[key]
+		}
+	}
+
+	Object.assign(S.conf, appliedWeights)
+	Object.assign(conf, appliedWeights)
+	setSliders()
+
+	if( shouldReset ){
+		running = false
+		S.reset()
+	}
+
+	document.getElementById("time").innerHTML = S.time
+	updateMetrics()
+	canvas.drawSwarm()
+	setPlayPause()
+
+	return appliedWeights
+}
+
+function newTarget(){
+
+	S.generateNewTarget()
+	updateMetrics()
+	canvas.drawSwarm()
 }
 
 
@@ -103,5 +154,3 @@ function setPlayPause(){
 		$('#playIcon').removeClass('fa-pause');$('#playIcon').addClass('fa-play')
 	}
 }
-
-
