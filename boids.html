@@ -207,12 +207,54 @@ function toggleRunning(){
 </tr>
 </table>
 
+  <br>
+  <p><b>GA Optimizer:</b></p>
+  <div style="max-width:600px; margin:auto; text-align:left;">
+
+    <p style="margin-bottom:4px"><i>Parameters to optimize:</i></p>
+    <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
+      <label><input type="checkbox" id="ga-opt-cohesion" checked> Cohesion</label>
+      <label><input type="checkbox" id="ga-opt-alignment" checked> Alignment</label>
+      <label><input type="checkbox" id="ga-opt-separation" checked> Separation</label>
+      <label><input type="checkbox" id="ga-opt-targetWeight" checked> Target Weight</label>
+      <label><input type="checkbox" id="ga-opt-avoidance" checked> Avoidance</label>
+      <label><input type="checkbox" id="ga-opt-randomWeight" checked> Random Weight</label>
+    </div>
+
+    <p style="margin-bottom:4px"><i>GA settings:</i></p>
+    <table style="margin-bottom:12px;">
+      <tr>
+        <td style="padding:2px 12px 2px 0">Population size</td>
+        <td><input type="number" id="ga-popSize" value="8" min="2" max="200" style="width:70px"></td>
+        <td style="padding:2px 12px 2px 16px">Generations</td>
+        <td><input type="number" id="ga-generations" value="4" min="1" max="200" style="width:70px"></td>
+      </tr>
+      <tr>
+        <td style="padding:2px 12px 2px 0">Max steps</td>
+        <td><input type="number" id="ga-maxSteps" value="300" min="50" max="5000" style="width:70px"></td>
+        <td style="padding:2px 12px 2px 16px">Seeds (comma-separated)</td>
+        <td><input type="text" id="ga-seeds" value="12345" style="width:110px"></td>
+      </tr>
+    </table>
+
+    <button id="ga-run-btn" class="btn btn-primary" onclick="runGAFromUI()">Run GA Optimization</button>
+
+    <div id="ga-progress-area" style="display:none; margin-top:12px;">
+      <div class="progress" style="height:20px;">
+        <div id="ga-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%"></div>
+      </div>
+      <p id="ga-status-text" style="margin-top:4px; font-size:0.9em; color:#555;">Starting…</p>
+    </div>
+
+  </div>
+  <br>
+
   </div>
 </body>
 
 <script>
- 
- 
+
+
  	$(document).ready(function () {
 
  		$('#playPause').on('click', function () {
@@ -227,6 +269,75 @@ function toggleRunning(){
  			newTarget()
  		});
  	});
+
+  async function runGAFromUI() {
+    const allParams = ['cohesion', 'alignment', 'separation', 'targetWeight', 'avoidance', 'randomWeight'];
+    const parameterKeys = allParams.filter(key => {
+      const cb = document.getElementById('ga-opt-' + key);
+      return cb && cb.checked;
+    });
+
+    if (parameterKeys.length === 0) {
+      alert('Select at least one parameter to optimize.');
+      return;
+    }
+
+    const populationSize = parseInt(document.getElementById('ga-popSize').value) || 8;
+    const generations    = parseInt(document.getElementById('ga-generations').value) || 4;
+    const maxSteps       = parseInt(document.getElementById('ga-maxSteps').value) || 300;
+    const evaluationSeeds = document.getElementById('ga-seeds').value
+      .split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    if (evaluationSeeds.length === 0) evaluationSeeds.push(12345);
+
+    const btn         = document.getElementById('ga-run-btn');
+    const progressArea = document.getElementById('ga-progress-area');
+    const progressBar  = document.getElementById('ga-progress-bar');
+    const statusText   = document.getElementById('ga-status-text');
+
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+    progressArea.style.display = 'block';
+    progressBar.classList.add('progress-bar-animated');
+    progressBar.style.width = '0%';
+    statusText.textContent = 'Initializing…';
+
+    try {
+      const result = await runAndApplyBoidsGAOptimizationAsync({
+        parameterKeys,
+        populationSize,
+        generations,
+        evaluationSeeds,
+        maxSteps,
+        yieldEverySteps: 5,
+        onProgress: function(progress) {
+          if (progress.phase === 'generation') {
+            const pct = Math.round((progress.generation / generations) * 100);
+            progressBar.style.width = pct + '%';
+            statusText.textContent =
+              `Generation ${progress.generation}/${generations} — best fitness: ${progress.bestFitness.toFixed(4)}`;
+          } else if (progress.phase === 'individual') {
+            const genFrac = (progress.generation - 1) / generations;
+            const indFrac = (progress.individual / progress.populationSize) / generations;
+            progressBar.style.width = Math.round((genFrac + indFrac) * 100) + '%';
+            statusText.textContent =
+              `Gen ${progress.generation}/${generations}, candidate ${progress.individual}/${progress.populationSize} — fitness: ${progress.fitness.toFixed(4)}`;
+          }
+        }
+      });
+
+      progressBar.style.width = '100%';
+      progressBar.classList.remove('progress-bar-animated');
+      statusText.textContent =
+        `Done! Best fitness: ${result.fitness.toFixed(4)} — weights applied & simulation reset.`;
+
+    } catch (err) {
+      statusText.textContent = 'Error: ' + err.message;
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run GA Optimization';
+    }
+  }
 
 </script>
 </html>

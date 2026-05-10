@@ -365,11 +365,11 @@ class Scene {
       timeScore = 0.0;
     }
 
-    const fitness = 0.4 * timeScore
-                  + 0.3 * orderParam
-                  + 0.2 * targetSuccess
+    const fitness = 0.5 * timeScore
+                  + 0.15 * orderParam
+                  + 0.3 * targetSuccess
                   - 0.1 * collisionRate
-                  - 0.2 * crowdingPenalty;
+                  - 0.35 * crowdingPenalty;
 
     return {
       fitness: Math.max(0, fitness),
@@ -415,7 +415,7 @@ class Scene {
 
     const fitness = base.rawFitness
                   - 0.1 * paramPenalty
-                  - 0.25 * base.crowdingPenalty;
+                  - 0.3 * base.crowdingPenalty;
 
     return {
       fitness: Math.max(0, fitness),
