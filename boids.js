@@ -2,6 +2,12 @@ const MIN_SPEED = 0.5;
 const MAX_SPEED = 3.0;
 const MAX_ACCELERATION = 0.12;
 const MAX_OBSTACLE_ACCELERATION = 0.55;
+const TARGET_ARRIVAL_RADIUS_FACTOR = 3;
+const TARGET_DAMPING = 0.9;
+const RETARGET_BOOST_STEPS = 180;
+const RETARGET_WEIGHT_BOOST = 0.4;
+const RETARGET_MIN_TARGET_WEIGHT = 0.3;
+const RETARGET_VELOCITY_BLEND = 0.28;
 
 let canvas, S;
 let conf = {
@@ -149,6 +155,12 @@ class Scene {
     this.obstacles = [];
     this.collisionCount = 0;
     this.firstMajorityTime = -1;
+    this.bestTargetSuccess = 0;
+    this.targetSuccessAccumulator = 0;
+    this.bestTargetApproachScore = 0;
+    this.targetApproachAccumulator = 0;
+    this.targetTrackingSteps = 0;
+    this.targetChangedAt = -Infinity;
     rngState = conf.seed;
     this.generateObstacles();
     this.generateTarget();
@@ -257,19 +269,65 @@ class Scene {
   generateNewTarget() {
     const previousTarget = [this.conf.targetX, this.conf.targetY];
     this.generateTarget(previousTarget);
+    this.resetTargetTracking();
+    this.targetChangedAt = this.time;
+    this.reorientSwarmTowardTarget(RETARGET_VELOCITY_BLEND);
+  }
+
+  resetTargetTracking() {
     this.firstMajorityTime = -1;
+    this.bestTargetSuccess = 0;
+    this.targetSuccessAccumulator = 0;
+    this.bestTargetApproachScore = 0;
+    this.targetApproachAccumulator = 0;
+    this.targetTrackingSteps = 0;
   }
 
   reset() {
     this.swarm = [];
     this.obstacles = [];
     this.collisionCount = 0;
-    this.firstMajorityTime = -1;
+    this.resetTargetTracking();
+    this.targetChangedAt = -Infinity;
     this.time = 0;
     rngState = this.conf.seed;
     this.generateObstacles();
     this.generateTarget();
     this.makeSwarm();
+  }
+
+  retargetBoost() {
+    const age = this.time - this.targetChangedAt;
+    if (age < 0 || age > RETARGET_BOOST_STEPS) return 0;
+    return RETARGET_WEIGHT_BOOST * (1 - age / RETARGET_BOOST_STEPS);
+  }
+
+  effectiveTargetWeight() {
+    const boost = this.retargetBoost();
+    if (boost <= 0) return this.conf.targetWeight;
+    return Math.min(1, Math.max(this.conf.targetWeight, RETARGET_MIN_TARGET_WEIGHT) + boost);
+  }
+
+  reorientSwarmTowardTarget(blend) {
+    for (const p of this.swarm) {
+      const toTarget = [
+        this.conf.targetX - p.pos[0],
+        this.conf.targetY - p.pos[1]
+      ];
+      const d = p.magnitude(toTarget);
+      if (d < 1e-8) continue;
+
+      const speed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, p.speed || MIN_SPEED));
+      const desiredVelocity = p.multiplyVector(p.normalizeVector(toTarget), speed);
+      const blendedVelocity = p.addVectors(
+        p.multiplyVector(p.vel, 1 - blend),
+        p.multiplyVector(desiredVelocity, blend)
+      );
+
+      p.vel = p.clipMagnitude(blendedVelocity, MIN_SPEED, MAX_SPEED);
+      p.speed = p.magnitude(p.vel);
+      p.dir = p.normalizeVector(p.vel.slice());
+    }
   }
 
   getAngles() {
@@ -298,17 +356,44 @@ class Scene {
     return Math.min(1, normalizedMag);
   }
 
+  targetDistance(pos) {
+    return this.euclideanDist(pos, [this.conf.targetX, this.conf.targetY]);
+  }
+
   targetSuccess() {
     let count = 0;
-    const tx = this.conf.targetX;
-    const ty = this.conf.targetY;
     const tr = this.conf.targetRadius;
 
     for (let p of this.swarm) {
-      const d = this.dist(p.pos, [tx, ty]);
+      const d = this.targetDistance(p.pos);
       if (d <= tr) count++;
     }
     return count / this.swarm.length;
+  }
+
+  targetApproachScore() {
+    if (this.swarm.length === 0) return 0;
+
+    const tr = this.conf.targetRadius;
+    const maxDistance = Math.sqrt(this.w * this.w + this.h * this.h);
+    const denom = Math.max(1, maxDistance - tr);
+    let score = 0;
+
+    for (const p of this.swarm) {
+      const d = this.targetDistance(p.pos);
+      const progress = 1 - Math.min(1, Math.max(0, (d - tr) / denom));
+      score += progress * progress;
+    }
+
+    return score / this.swarm.length;
+  }
+
+  averageTargetSuccess() {
+    return this.targetSuccessAccumulator / Math.max(1, this.targetTrackingSteps);
+  }
+
+  averageTargetApproachScore() {
+    return this.targetApproachAccumulator / Math.max(1, this.targetTrackingSteps);
   }
 
   getCrowdingPenalty() {
@@ -355,6 +440,11 @@ class Scene {
   computeFitness() {
     const orderParam = this.getOrderParameter();
     const targetSuccess = this.targetSuccess();
+    const targetApproachScore = this.targetApproachScore();
+    const bestTargetSuccess = Math.max(this.bestTargetSuccess, targetSuccess);
+    const averageTargetSuccess = this.averageTargetSuccess();
+    const bestTargetApproachScore = Math.max(this.bestTargetApproachScore, targetApproachScore);
+    const averageTargetApproachScore = this.averageTargetApproachScore();
     const crowdingPenalty = this.getCrowdingPenalty();
     const collisionRate = this.collisionCount / Math.max(1, this.time * this.swarm.length);
 
@@ -365,17 +455,25 @@ class Scene {
       timeScore = 0.0;
     }
 
-    const fitness = 0.5 * timeScore
-                  + 0.15 * orderParam
-                  + 0.3 * targetSuccess
+    const fitness = 0.2 * timeScore
+                  + 0.18 * orderParam
+                  + 0.2 * bestTargetSuccess
+                  + 0.22 * averageTargetSuccess
+                  + 0.12 * bestTargetApproachScore
+                  + 0.08 * averageTargetApproachScore
                   - 0.1 * collisionRate
-                  - 0.35 * crowdingPenalty;
+                  - 0.45 * crowdingPenalty;
 
     return {
       fitness: Math.max(0, fitness),
       rawFitness: fitness,
       timeScore: timeScore,
       targetSuccess: targetSuccess,
+      bestTargetSuccess: bestTargetSuccess,
+      averageTargetSuccess: averageTargetSuccess,
+      targetApproachScore: targetApproachScore,
+      bestTargetApproachScore: bestTargetApproachScore,
+      averageTargetApproachScore: averageTargetApproachScore,
       crowdingPenalty: crowdingPenalty,
       collisionRate: collisionRate,
       orderParameter: orderParam,
@@ -422,6 +520,11 @@ class Scene {
       orderParam: base.orderParameter,
       timeScore: base.timeScore,
       targetSuccess: base.targetSuccess,
+      bestTargetSuccess: base.bestTargetSuccess,
+      averageTargetSuccess: base.averageTargetSuccess,
+      targetApproachScore: base.targetApproachScore,
+      bestTargetApproachScore: base.bestTargetApproachScore,
+      averageTargetApproachScore: base.averageTargetApproachScore,
       crowdingPenalty: base.crowdingPenalty,
       collisionRate: base.collisionRate,
       paramPenalty: paramPenalty,
@@ -555,8 +658,15 @@ class Scene {
       p.resolveObstaclePenetration();
     }
 
+    const currentSuccess = this.targetSuccess();
+    const currentApproach = this.targetApproachScore();
+    this.bestTargetSuccess = Math.max(this.bestTargetSuccess, currentSuccess);
+    this.targetSuccessAccumulator += currentSuccess;
+    this.bestTargetApproachScore = Math.max(this.bestTargetApproachScore, currentApproach);
+    this.targetApproachAccumulator += currentApproach;
+    this.targetTrackingSteps++;
+
     if (this.firstMajorityTime === -1) {
-      const currentSuccess = this.targetSuccess();
       if (currentSuccess >= this.conf.majorityThreshold) {
         this.firstMajorityTime = this.time;
       }
@@ -714,25 +824,29 @@ class Particle {
   }
 
   targetVector() {
-    const target = [
-      this.S.conf.targetX,
-      this.S.conf.targetY
-    ];
-    const tpos = this.S.wrap(target, this.pos);
-
-    const dx = tpos[0] - this.pos[0];
-    const dy = tpos[1] - this.pos[1];
+    const dx = this.S.conf.targetX - this.pos[0];
+    const dy = this.S.conf.targetY - this.pos[1];
     const d = Math.sqrt(dx * dx + dy * dy);
 
-    if (d < this.S.conf.targetRadius) {
-      return [0, 0];
+    if (d < 1e-8) {
+      return this.multiplyVector(this.vel, -1);
     }
 
-    const strength = Math.min(
-      (d - this.S.conf.targetRadius) / Math.max(this.S.w, this.S.h),
-      1
+    const arrivalRadius = this.S.conf.targetRadius * TARGET_ARRIVAL_RADIUS_FACTOR;
+    const distanceOutsideTarget = Math.max(0, d - this.S.conf.targetRadius);
+    const desiredSpeed = d <= this.S.conf.targetRadius
+      ? 0
+      : MAX_SPEED * Math.min(
+        distanceOutsideTarget / Math.max(1, arrivalRadius - this.S.conf.targetRadius),
+        1
+      );
+
+    const desiredVelocity = this.multiplyVector(
+      this.normalizeVector([dx, dy]),
+      desiredSpeed
     );
-    return this.multiplyVector(this.normalizeVector([dx, dy]), strength);
+
+    return this.subtractVectors(desiredVelocity, this.vel);
   }
 
   obstacleAvoidanceVector() {
@@ -877,7 +991,7 @@ class Particle {
     V = this.addVectors(V, this.multiplyVector(C, c.cohesion));
     V = this.addVectors(V, this.multiplyVector(A, c.alignment));
     V = this.addVectors(V, this.multiplyVector(S, c.separation));
-    V = this.addVectors(V, this.multiplyVector(T, c.targetWeight));
+    V = this.addVectors(V, this.multiplyVector(T, this.S.effectiveTargetWeight()));
     V = this.addVectors(V, this.multiplyVector(O, c.avoidance));
     V = this.addVectors(V, this.multiplyVector(R, c.randomWeight));
 
@@ -886,7 +1000,12 @@ class Particle {
       ? MAX_OBSTACLE_ACCELERATION
       : MAX_ACCELERATION;
     V = this.addVectors(this.vel, this.limitMagnitude(V, maxAcceleration));
-    V = this.clipMagnitude(V, MIN_SPEED, MAX_SPEED);
+
+    const insideTarget = this.S.targetDistance(this.pos) <= c.targetRadius;
+    if (insideTarget) {
+      V = this.multiplyVector(V, TARGET_DAMPING);
+    }
+    V = this.clipMagnitude(V, insideTarget ? 0 : MIN_SPEED, MAX_SPEED);
 
     this.vel = V;
     this.speed = this.magnitude(V);

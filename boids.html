@@ -28,15 +28,22 @@ function step(){
 }
 
 function updateMetrics() {
+	if (!document.getElementById("fitness")) return;
+
 	const metrics = S.computeFitness();
-	document.getElementById("timeScore").innerHTML = metrics.timeScore.toFixed(3);
-	document.getElementById("timeToMajority").innerHTML = metrics.firstMajorityTime >= 0 ? metrics.firstMajorityTime : "failed";
-	document.getElementById("orderParameter").innerHTML = metrics.orderParameter.toFixed(3);
-	document.getElementById("targetSuccess").innerHTML = metrics.targetSuccess.toFixed(3);
-	document.getElementById("crowdingPenalty").innerHTML = metrics.crowdingPenalty.toFixed(3);
-	document.getElementById("collisions").innerHTML = metrics.collisions;
-	document.getElementById("collisionRate").innerHTML = metrics.collisionRate.toFixed(4);
-	document.getElementById("fitness").innerHTML = metrics.fitness.toFixed(3);
+	const setMetric = function(id, value) {
+		const el = document.getElementById(id);
+		if (el) el.innerHTML = value;
+	};
+
+	setMetric("timeScore", metrics.timeScore.toFixed(3));
+	setMetric("timeToMajority", metrics.firstMajorityTime >= 0 ? metrics.firstMajorityTime : "failed");
+	setMetric("orderParameter", metrics.orderParameter.toFixed(3));
+	setMetric("targetSuccess", metrics.targetSuccess.toFixed(3));
+	setMetric("crowdingPenalty", metrics.crowdingPenalty.toFixed(3));
+	setMetric("collisions", metrics.collisions);
+	setMetric("collisionRate", metrics.collisionRate.toFixed(4));
+	setMetric("fitness", metrics.fitness.toFixed(3));
 }
 
 function toggleRunning(){
@@ -45,7 +52,7 @@ function toggleRunning(){
 
 </script>
 </head>
-<body onload="initialize(); setSliders(); setPlayPause(); sliderInput(); step()">
+<body onload="initialize(); setSliders(); setGASliders(); setPlayPause(); sliderInput(); gaSliderInput(); step()">
 
 <div style="text-align:center;max-width:1000px;margin:auto">
 
@@ -171,83 +178,116 @@ function toggleRunning(){
 	<br>
 </div>
 
-<p><b>Metrics:</b></p>
-<table width="400px" align="center" border="1" style="border-collapse: collapse;">
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Time Score</b></td>
-	<td style="width:50%; padding: 8px;"><span id="timeScore">0</span></td>
-</tr>
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Time to Majority</b></td>
-	<td style="width:50%; padding: 8px;"><span id="timeToMajority">-</span></td>
-</tr>
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Order Parameter</b></td>
-	<td style="width:50%; padding: 8px;"><span id="orderParameter">0</span></td>
-</tr>
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Target Success</b></td>
-	<td style="width:50%; padding: 8px;"><span id="targetSuccess">0</span></td>
-</tr>
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Crowding Penalty</b></td>
-	<td style="width:50%; padding: 8px;"><span id="crowdingPenalty">0</span></td>
-</tr>
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Collisions</b></td>
-	<td style="width:50%; padding: 8px;"><span id="collisions">0</span></td>
-</tr>
-<tr>
-	<td style="width:50%; padding: 8px;"><b>Collision Rate</b></td>
-	<td style="width:50%; padding: 8px;"><span id="collisionRate">0</span></td>
-</tr>
-<tr style="background-color: #e0e0e0;">
-	<td style="width:50%; padding: 8px;"><b>Fitness</b></td>
-	<td style="width:50%; padding: 8px;"><span id="fitness">0</span></td>
-</tr>
-</table>
-
   <br>
-  <p><b>GA Optimizer:</b></p>
-  <div style="max-width:600px; margin:auto; text-align:left;">
-
-    <p style="margin-bottom:4px"><i>Parameters to optimize:</i></p>
-    <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
-      <label><input type="checkbox" id="ga-opt-cohesion" checked> Cohesion</label>
-      <label><input type="checkbox" id="ga-opt-alignment" checked> Alignment</label>
-      <label><input type="checkbox" id="ga-opt-separation" checked> Separation</label>
-      <label><input type="checkbox" id="ga-opt-targetWeight" checked> Target Weight</label>
-      <label><input type="checkbox" id="ga-opt-avoidance" checked> Avoidance</label>
-      <label><input type="checkbox" id="ga-opt-randomWeight" checked> Random Weight</label>
-    </div>
-
-    <p style="margin-bottom:4px"><i>GA settings:</i></p>
-    <table style="margin-bottom:12px;">
-      <tr>
-        <td style="padding:2px 12px 2px 0">Population size</td>
-        <td><input type="number" id="ga-popSize" value="8" min="2" max="200" style="width:70px"></td>
-        <td style="padding:2px 12px 2px 16px">Generations</td>
-        <td><input type="number" id="ga-generations" value="4" min="1" max="200" style="width:70px"></td>
-      </tr>
-      <tr>
-        <td style="padding:2px 12px 2px 0">Max steps</td>
-        <td><input type="number" id="ga-maxSteps" value="300" min="50" max="5000" style="width:70px"></td>
-        <td style="padding:2px 12px 2px 16px">Seeds (comma-separated)</td>
-        <td><input type="text" id="ga-seeds" value="12345" style="width:110px"></td>
-      </tr>
-    </table>
-
-    <button id="ga-run-btn" class="btn btn-primary" onclick="runGAFromUI()">Run GA Optimization</button>
-
-    <div id="ga-progress-area" style="display:none; margin-top:12px;">
-      <div class="progress" style="height:20px;">
-        <div id="ga-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%"></div>
+  <p><b>GA Optimizer parameters:</b></p>
+  <table width="600px" align="center">
+  <tr>
+    <td style="width:20%">Optimisation variables</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="1" max="6" step="1" id="gaVars" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
       </div>
-      <p id="ga-status-text" style="margin-top:4px; font-size:0.9em; color:#555;">Starting…</p>
-    </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Upper limit</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="0" max="1" step="0.01" id="gaUpper" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Lower limit</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="0" max="1" step="0.01" id="gaLower" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Maximum iteration</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="1" max="100" step="1" id="gaIterations" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Minimum cost</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="0" max="1" step="0.01" id="gaMinCost" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Population size</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="2" max="100" step="1" id="gaPopulation" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Mutation rate</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="0" max="1" step="0.01" id="gaMutation" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Selection rate</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="0.1" max="1" step="0.05" id="gaSelection" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  <tr>
+    <td style="width:20%">Evaluation steps</td>
+    <td style="width:70%">
+      <div class="range-wrap">
+        <input type="range" class="range" min="50" max="1000" step="50" id="gaEvalSteps" oninput="gaSliderInput()" >
+        <output class="bubble"></output>
+      </div>
+    </td>
+    <td style="width:20%"></td>
+  </tr>
+  </table>
 
+  <p style="font-size:0.9em; color:#555;">
+    Variables: <span id="gaVariablesText">-</span>
+  </p>
+
+  <button id="gaRun" class="btn btn-primary" onclick="runGAFromUI()">Run GA Optimization</button>
+
+  <div id="gaProgressArea" style="display:none; max-width:600px; margin:12px auto 0;">
+    <div class="progress" style="height:20px;">
+      <div id="gaProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%"></div>
+    </div>
+    <p id="gaStatusText" style="margin-top:4px; font-size:0.9em; color:#555;">Starting...</p>
   </div>
+
   <br>
+  <div style="height:80px;"></div>
 
   </div>
 </body>
@@ -269,75 +309,6 @@ function toggleRunning(){
  			newTarget()
  		});
  	});
-
-  async function runGAFromUI() {
-    const allParams = ['cohesion', 'alignment', 'separation', 'targetWeight', 'avoidance', 'randomWeight'];
-    const parameterKeys = allParams.filter(key => {
-      const cb = document.getElementById('ga-opt-' + key);
-      return cb && cb.checked;
-    });
-
-    if (parameterKeys.length === 0) {
-      alert('Select at least one parameter to optimize.');
-      return;
-    }
-
-    const populationSize = parseInt(document.getElementById('ga-popSize').value) || 8;
-    const generations    = parseInt(document.getElementById('ga-generations').value) || 4;
-    const maxSteps       = parseInt(document.getElementById('ga-maxSteps').value) || 300;
-    const evaluationSeeds = document.getElementById('ga-seeds').value
-      .split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-    if (evaluationSeeds.length === 0) evaluationSeeds.push(12345);
-
-    const btn         = document.getElementById('ga-run-btn');
-    const progressArea = document.getElementById('ga-progress-area');
-    const progressBar  = document.getElementById('ga-progress-bar');
-    const statusText   = document.getElementById('ga-status-text');
-
-    btn.disabled = true;
-    btn.textContent = 'Running…';
-    progressArea.style.display = 'block';
-    progressBar.classList.add('progress-bar-animated');
-    progressBar.style.width = '0%';
-    statusText.textContent = 'Initializing…';
-
-    try {
-      const result = await runAndApplyBoidsGAOptimizationAsync({
-        parameterKeys,
-        populationSize,
-        generations,
-        evaluationSeeds,
-        maxSteps,
-        yieldEverySteps: 5,
-        onProgress: function(progress) {
-          if (progress.phase === 'generation') {
-            const pct = Math.round((progress.generation / generations) * 100);
-            progressBar.style.width = pct + '%';
-            statusText.textContent =
-              `Generation ${progress.generation}/${generations} — best fitness: ${progress.bestFitness.toFixed(4)}`;
-          } else if (progress.phase === 'individual') {
-            const genFrac = (progress.generation - 1) / generations;
-            const indFrac = (progress.individual / progress.populationSize) / generations;
-            progressBar.style.width = Math.round((genFrac + indFrac) * 100) + '%';
-            statusText.textContent =
-              `Gen ${progress.generation}/${generations}, candidate ${progress.individual}/${progress.populationSize} — fitness: ${progress.fitness.toFixed(4)}`;
-          }
-        }
-      });
-
-      progressBar.style.width = '100%';
-      progressBar.classList.remove('progress-bar-animated');
-      statusText.textContent =
-        `Done! Best fitness: ${result.fitness.toFixed(4)} — weights applied & simulation reset.`;
-
-    } catch (err) {
-      statusText.textContent = 'Error: ' + err.message;
-      console.error(err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Run GA Optimization';
-    }
-  }
 
 </script>
 </html>
