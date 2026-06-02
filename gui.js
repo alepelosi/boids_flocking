@@ -161,6 +161,12 @@ function setupUI() {
   bindClick("exportOptimizerCSV", function() {
     exportOptimizerResultsCSV();
   });
+  bindClick("exportWeightsJSON", function() {
+    exportOptimizerWeightsJSON();
+  });
+  bindClick("exportWeightsCSV", function() {
+    exportOptimizerWeightsCSV();
+  });
   bindRangeNumberPairs(OPTIMIZER_RANGE_PAIRS);
   syncNumberInputs(["gaTrainingSeeds", "cmaTrainingSeeds"]);
   syncNumberInputs(["gaTargetChanges", "cmaTargetChanges"]);
@@ -1347,6 +1353,86 @@ function optimizerExportRows() {
   });
 }
 
+function optimizerWeightsExportRows() {
+  const weightKeys = optimizerWeightKeys();
+
+  return optimizerRows.map((row, index) => {
+    const protocol = row.seedProtocol || {};
+    const exported = {
+      run: index + 1,
+      method: row.method,
+      trainFitness: row.trainFitness,
+      validationFitness: row.validationFitness,
+      testFitness: row.testFitness,
+      fitnessStd: row.fitnessStd,
+      targets: row.targetCompletionCount,
+      averageTargetChangeInterval: row.averageTargetChangeInterval,
+      order: row.orderParam,
+      nn: row.meanNearestNeighborDistance,
+      spacingScore: row.spacingScore,
+      cluster: row.largestClusterFraction,
+      collisions: row.collisionRate,
+      runtimeSeconds: row.runtimeSeconds,
+      evaluations: row.evaluations,
+      parameterKeys: row.parameterKeys || [],
+      trainingSeeds: protocol.training || [],
+      validationSeeds: protocol.validation || [],
+      testSeeds: protocol.test || [],
+      validationSelection: row.validationSelection || null
+    };
+
+    for (const key of weightKeys) {
+      exported[key] = row.weights ? row.weights[key] : undefined;
+    }
+
+    return exported;
+  });
+}
+
+function exportOptimizerWeightsJSON() {
+  if (optimizerRows.length === 0) {
+    setOptimizerExportStatus("Run GA or CMA-ES before exporting weights.");
+    return;
+  }
+
+  const latestRow = optimizerRows[optimizerRows.length - 1];
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    optimizerSeedSplits: OPTIMIZER_SEED_SPLITS,
+    latest: latestRow,
+    optimizerWeights: optimizerWeightsExportRows()
+  };
+
+  downloadFile(
+    "boids-optimizer-weights-" + exportTimestamp() + ".json",
+    JSON.stringify(payload, null, 2),
+    "application/json"
+  );
+  setOptimizerExportStatus("Exported optimizer weights JSON.");
+}
+
+function exportOptimizerWeightsCSV() {
+  if (optimizerRows.length === 0) {
+    setOptimizerExportStatus("Run GA or CMA-ES before exporting weights.");
+    return;
+  }
+
+  const rows = optimizerWeightsExportRows();
+  const columns = Object.keys(rows[0]);
+  const lines = [columns.map(csvValue).join(",")];
+
+  for (const row of rows) {
+    lines.push(columns.map((column) => csvValue(row[column])).join(","));
+  }
+
+  downloadFile(
+    "boids-optimizer-weights-" + exportTimestamp() + ".csv",
+    lines.join("\n"),
+    "text/csv"
+  );
+  setOptimizerExportStatus("Exported optimizer weights CSV.");
+}
+
 function exportOptimizerResultsJSON() {
   if (optimizerRows.length === 0) {
     setOptimizerExportStatus("Run GA or CMA-ES before exporting optimizer results.");
@@ -1529,4 +1615,6 @@ if (typeof window !== "undefined") {
   window.exportResultsCSV = exportResultsCSV;
   window.exportOptimizerResultsJSON = exportOptimizerResultsJSON;
   window.exportOptimizerResultsCSV = exportOptimizerResultsCSV;
+  window.exportOptimizerWeightsJSON = exportOptimizerWeightsJSON;
+  window.exportOptimizerWeightsCSV = exportOptimizerWeightsCSV;
 }

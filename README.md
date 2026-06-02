@@ -36,6 +36,7 @@ The page lets you:
 - apply optimized weights to the simulation;
 - run repeated tests across many seeds;
 - export results as CSV or JSON;
+- export selected optimizer weights as CSV or JSON;
 - download a screenshot of the simulation scene.
 
 ## Recommended Experiment Workflow
