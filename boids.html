@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boids target optimizer</title>
+  <link rel="stylesheet" href="./style.css">
+
+  <script src="boids.js"></script>
+  <script src="ga_optimizer.js"></script>
+  <script src="cma_optimizer.js"></script>
+  <script src="gui.js"></script>
+</head>
+<body onload="initialize(); setupUI(); step()">
+  <main>
+    <h1>Boids target optimizer</h1>
+
+    <section class="layout">
+      <aside>
+        <section class="panel">
+          <h2>Parameters</h2>
+          <div class="control-list">
+            <label for="wa">Alignment</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="1" step="0.001" id="wa">
+              <output class="bubble" for="wa"></output>
+            </div>
+
+            <label for="wc">Cohesion</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="1" step="0.001" id="wc">
+              <output class="bubble" for="wc"></output>
+            </div>
+
+            <label for="ws">Separation</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="1" step="0.001" id="ws">
+              <output class="bubble" for="ws"></output>
+            </div>
+
+            <label for="wt">Target</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="1" step="0.001" id="wt">
+              <output class="bubble" for="wt"></output>
+            </div>
+
+            <label for="wo">Avoidance</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="1" step="0.001" id="wo">
+              <output class="bubble" for="wo"></output>
+            </div>
+
+            <label for="wl">Leader follow</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="1" step="0.001" id="wl">
+              <output class="bubble" for="wl"></output>
+            </div>
+
+            <label for="wr">Random</label>
+            <div class="range-wrap">
+              <input type="range" min="0" max="0.05" step="0.001" id="wr">
+              <output class="bubble" for="wr"></output>
+            </div>
+
+            <label for="rSep">Separation radius</label>
+            <div class="range-wrap">
+              <input type="range" min="5" max="60" step="1" id="rSep">
+              <output class="bubble" for="rSep"></output>
+            </div>
+
+            <label for="rInt">Interaction radius</label>
+            <div class="range-wrap">
+              <input type="range" min="20" max="120" step="1" id="rInt">
+              <output class="bubble" for="rInt"></output>
+            </div>
+
+            <label for="rObs">Obstacle perception</label>
+            <div class="range-wrap">
+              <input type="range" min="30" max="200" step="1" id="rObs">
+              <output class="bubble" for="rObs"></output>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Runs</h2>
+          <div class="field-grid">
+            <label for="testSeed">Test seed</label>
+            <input type="number" id="testSeed" value="12345" step="1">
+
+            <label for="batchRuns">Runs</label>
+            <input type="number" id="batchRuns" value="10" min="1" max="100" step="1">
+
+            <label for="batchSteps">Steps per run</label>
+            <input type="number" id="batchSteps" value="1000" min="100" max="10000" step="100">
+
+            <label for="batchSource">Source</label>
+            <select id="batchSource">
+              <option value="Manual">Manual</option>
+              <option value="GA">GA</option>
+              <option value="CMA-ES">CMA-ES</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </div>
+          <div class="button-row stack">
+            <button type="button" id="applySeed">Apply seed</button>
+            <button type="button" id="runBatch">Run repeated test</button>
+            <button type="button" id="gaRun">Run GA</button>
+            <button type="button" id="cmaRun">Run CMA-ES</button>
+            <button type="button" id="restorePreRunWeights" disabled>Restore pre-run weights</button>
+          </div>
+          <div id="optimizerProgress" class="progress-area" hidden>
+            <div class="progress-track">
+              <div id="optimizerProgressBar" class="progress-bar"></div>
+            </div>
+            <p id="optimizerProgressText">Waiting.</p>
+          </div>
+          <p id="runStatus" class="status">Ready.</p>
+        </section>
+
+        <section class="panel">
+          <h2>GA parameters</h2>
+          <div class="field-grid">
+            <label for="gaVars">Variables</label>
+            <div class="range-number">
+              <input type="range" id="gaVarsSlider" min="1" max="6" step="1" value="6">
+              <input type="number" id="gaVars" value="6" min="1" max="6" step="1">
+            </div>
+
+            <label for="gaIterations">Generations</label>
+            <div class="range-number">
+              <input type="range" id="gaIterationsSlider" min="1" max="200" step="1" value="12">
+              <input type="number" id="gaIterations" value="12" min="1" max="200" step="1">
+            </div>
+
+            <label for="gaPopulation">Population</label>
+            <div class="range-number">
+              <input type="range" id="gaPopulationSlider" min="3" max="100" step="1" value="8">
+              <input type="number" id="gaPopulation" value="8" min="3" max="100" step="1">
+            </div>
+
+            <label for="gaMutation">Mutation</label>
+            <div class="range-number">
+              <input type="range" id="gaMutationSlider" min="0" max="1" step="0.01" value="0.2">
+              <input type="number" id="gaMutation" value="0.2" min="0" max="1" step="0.01">
+            </div>
+
+            <label for="gaSelection">Selection</label>
+            <div class="range-number">
+              <input type="range" id="gaSelectionSlider" min="0.1" max="1" step="0.05" value="0.5">
+              <input type="number" id="gaSelection" value="0.5" min="0.1" max="1" step="0.05">
+            </div>
+
+            <label for="gaRobustness">Robustness</label>
+            <div class="range-number">
+              <input type="range" id="gaRobustnessSlider" min="0" max="1" step="0.01" value="0.15">
+              <input type="number" id="gaRobustness" value="0.15" min="0" max="1" step="0.01">
+            </div>
+
+            <label for="gaTrainingSeeds">Training seeds</label>
+            <div class="range-number">
+              <input type="range" id="gaTrainingSeedsSlider" min="1" max="5" step="1" value="3">
+              <input type="number" id="gaTrainingSeeds" value="3" min="1" max="5" step="1">
+            </div>
+
+            <label for="gaTargetChanges">Target changes</label>
+            <div class="range-number">
+              <input type="range" id="gaTargetChangesSlider" min="0" max="10" step="1" value="0">
+              <input type="number" id="gaTargetChanges" value="0" min="0" max="10" step="1">
+            </div>
+
+            <label for="gaSeed">GA seed</label>
+            <input type="number" id="gaSeed" value="24681357" min="1" step="1">
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>CMA-ES parameters</h2>
+          <div class="field-grid">
+            <label for="cmaVars">Variables</label>
+            <div class="range-number">
+              <input type="range" id="cmaVarsSlider" min="2" max="6" step="1" value="6">
+              <input type="number" id="cmaVars" value="6" min="2" max="6" step="1">
+            </div>
+
+            <label for="cmaGenerations">Generations</label>
+            <div class="range-number">
+              <input type="range" id="cmaGenerationsSlider" min="1" max="200" step="1" value="12">
+              <input type="number" id="cmaGenerations" value="12" min="1" max="200" step="1">
+            </div>
+
+            <label for="cmaPopulation">Population</label>
+            <div class="range-number">
+              <input type="range" id="cmaPopulationSlider" min="4" max="100" step="1" value="8">
+              <input type="number" id="cmaPopulation" value="8" min="4" max="100" step="1">
+            </div>
+
+            <label for="cmaSigma">Sigma</label>
+            <div class="range-number">
+              <input type="range" id="cmaSigmaSlider" min="0.01" max="1" step="0.01" value="0.25">
+              <input type="number" id="cmaSigma" value="0.25" min="0.01" max="1" step="0.01">
+            </div>
+
+            <label for="cmaRobustness">Robustness</label>
+            <div class="range-number">
+              <input type="range" id="cmaRobustnessSlider" min="0" max="1" step="0.01" value="0.15">
+              <input type="number" id="cmaRobustness" value="0.15" min="0" max="1" step="0.01">
+            </div>
+
+            <label for="cmaTrainingSeeds">Training seeds</label>
+            <div class="range-number">
+              <input type="range" id="cmaTrainingSeedsSlider" min="1" max="5" step="1" value="3">
+              <input type="number" id="cmaTrainingSeeds" value="3" min="1" max="5" step="1">
+            </div>
+
+            <label for="cmaTargetChanges">Target changes</label>
+            <div class="range-number">
+              <input type="range" id="cmaTargetChangesSlider" min="0" max="10" step="1" value="0">
+              <input type="number" id="cmaTargetChanges" value="0" min="0" max="10" step="1">
+            </div>
+
+            <label for="cmaSeed">CMA seed</label>
+            <input type="number" id="cmaSeed" value="99991357" min="1" step="1">
+          </div>
+        </section>
+      </aside>
+
+      <section class="content-column">
+        <section class="panel simulation-panel">
+          <div class="section-row">
+            <h2>Simulation</h2>
+            <div class="button-row">
+              <button type="button" id="playPause"><span id="playIcon">Pause</span></button>
+              <button type="button" id="reset">Reset</button>
+              <button type="button" id="newTarget">Target</button>
+              <button type="button" id="downloadScene">Screenshot</button>
+            </div>
+          </div>
+          <div id="canvasModel" class="simulationCanvas"></div>
+
+          <table class="metrics-table">
+            <tbody>
+              <tr>
+                <th>Step</th>
+                <td id="time">0</td>
+                <th>In target</th>
+                <td id="targetArrivalSuccess">-</td>
+                <th>Targets reached</th>
+                <td id="targetCompletions">-</td>
+              </tr>
+              <tr>
+                <th>Current target time</th>
+                <td id="currentTargetAge">-</td>
+                <th>Last target time</th>
+                <td id="lastTargetInterval">-</td>
+                <th>Avg target time</th>
+                <td id="averageTargetInterval">-</td>
+              </tr>
+              <tr>
+                <th>Order</th>
+                <td id="orderParameter">-</td>
+                <th>Cluster</th>
+                <td id="largestClusterFraction">-</td>
+                <th>Collision rate</th>
+                <td id="collisionRate">-</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="section-row">
+            <h2>Repeated test results</h2>
+            <div class="button-row">
+              <button type="button" id="exportJSON">Export JSON</button>
+              <button type="button" id="exportCSV">Export CSV</button>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Seed</th>
+                <th>Runs</th>
+                <th>Steps</th>
+                <th>Targets mean</th>
+                <th>Targets std</th>
+                <th>Time mean</th>
+                <th>Time std</th>
+                <th>Order mean</th>
+                <th>Order std</th>
+                <th>NN mean</th>
+                <th>NN std</th>
+                <th>Spacing</th>
+                <th>Cluster</th>
+                <th>Collisions</th>
+                <th>Fitness avg</th>
+                <th>Fitness std</th>
+              </tr>
+            </thead>
+            <tbody id="batchResultsBody">
+              <tr><td colspan="17">Run a repeated test to fill this table.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>Run-by-run metrics</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Run</th>
+                <th>Seed</th>
+                <th>Steps</th>
+                <th>Targets</th>
+                <th>Time</th>
+                <th>Order</th>
+                <th>NN</th>
+                <th>Spacing</th>
+                <th>Cluster</th>
+                <th>Collisions</th>
+                <th>Fitness</th>
+              </tr>
+            </thead>
+            <tbody id="runDetailsBody">
+              <tr><td colspan="12">Run a repeated test to fill this table.</td></tr>
+            </tbody>
+          </table>
+          <p id="exportStatus" class="status"></p>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="section-row">
+            <h2>Optimizer results</h2>
+            <div class="button-row">
+              <button type="button" id="exportOptimizerJSON">Export JSON</button>
+              <button type="button" id="exportOptimizerCSV">Export CSV</button>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Train</th>
+                <th>Validation</th>
+                <th>Test</th>
+                <th>Fit std</th>
+                <th>Targets</th>
+                <th>Time</th>
+                <th>Order</th>
+                <th>NN</th>
+                <th>Cluster</th>
+                <th>Collisions</th>
+                <th>Runtime</th>
+                <th>Eval.</th>
+              </tr>
+            </thead>
+            <tbody id="optimizerResultsBody">
+              <tr><td colspan="13">Run GA or CMA-ES to fill this table.</td></tr>
+            </tbody>
+          </table>
+          <p id="optimizerExportStatus" class="status"></p>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
