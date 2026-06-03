@@ -3,6 +3,7 @@
 let running = true;
 let lastMetricsUpdate = -Infinity;
 let optimizerRows = [];
+let optimizerEvaluationRows = [];
 let batchRows = [];
 let batchRunRows = [];
 let preOptimizerWeights = null;
@@ -166,6 +167,9 @@ function setupUI() {
   });
   bindClick("exportWeightsCSV", function() {
     exportOptimizerWeightsCSV();
+  });
+  bindClick("exportOptimizerHistoryCSV", function() {
+    exportOptimizerHistoryCSV();
   });
   bindRangeNumberPairs(OPTIMIZER_RANGE_PAIRS);
   syncNumberInputs(["gaTrainingSeeds", "cmaTrainingSeeds"]);
@@ -1073,7 +1077,7 @@ async function runGAFromUI() {
     const result = await runBoidsGAOptimizationAsync(options);
     await attachSeedSplitMetrics(result, options, "GA");
     applyWeightsToSimulation(result.weights, { reset: true, restart: true, source: "GA" });
-    recordOptimizerResult("GA", result, optimizerTimestamp() - startedAt);
+    recordOptimizerResult("GA", result, optimizerTimestamp() - startedAt, options);
     setOptimizerProgress(100, "GA complete. Validation/test metrics computed on fixed seeds.");
     setStatus("GA complete. Validation/test metrics computed on fixed seeds.");
   } catch (err) {
@@ -1110,7 +1114,7 @@ async function runCMAFromUI() {
     const result = await runBoidsCMAESOptimizationAsync(options);
     await attachSeedSplitMetrics(result, options, "CMA-ES");
     applyWeightsToSimulation(result.weights, { reset: true, restart: true, source: "CMA-ES" });
-    recordOptimizerResult("CMA-ES", result, optimizerTimestamp() - startedAt);
+    recordOptimizerResult("CMA-ES", result, optimizerTimestamp() - startedAt, options);
     setOptimizerProgress(100, "CMA-ES complete. Validation/test metrics computed on fixed seeds.");
     setStatus("CMA-ES complete. Validation/test metrics computed on fixed seeds.");
   } catch (err) {
@@ -1122,13 +1126,61 @@ async function runCMAFromUI() {
   }
 }
 
-function recordOptimizerResult(method, result, runtimeMs) {
+function recordOptimizerEvaluationHistory(method, result, optimizerRun, options = {}) {
+  const logRows = result.evaluationLog || [];
+  const trainingSeeds = (options.evaluationSeeds || []).slice();
+  const parameterKeys = result.parameterKeys || options.variables || OPTIMIZER_VARIABLES;
+
+  for (const row of logRows) {
+    const weights = row.weights || {};
+    optimizerEvaluationRows.push({
+      method: method,
+      optimizerRun: optimizerRun,
+      optimizerSeed: options.seed,
+      generation: row.generation,
+      individual: row.individual,
+      rank: row.rank,
+      populationSize: row.populationSize,
+      evaluation: row.evaluation,
+      trainingSeeds: trainingSeeds,
+      targetChanges: options.targetChanges,
+      maxSteps: options.maxSteps,
+      parameterKeys: parameterKeys.slice(),
+      fitness: row.fitness,
+      cost: row.cost,
+      meanFitness: row.meanFitness,
+      fitnessStd: row.fitnessStd,
+      targetScore: row.targetScore,
+      formationScore: row.formationScore,
+      constraintScore: row.constraintScore,
+      targets: row.targetCompletionCount,
+      targetTime: row.averageTargetChangeInterval,
+      order: row.orderParam,
+      nn: row.meanNearestNeighborDistance,
+      spacingScore: row.spacingScore,
+      cluster: row.largestClusterFraction,
+      collisionRate: row.collisionRate,
+      sigma: row.sigma,
+      cohesion: weights.cohesion,
+      alignment: weights.alignment,
+      separation: weights.separation,
+      targetWeight: weights.targetWeight,
+      avoidance: weights.avoidance,
+      leaderFollowWeight: weights.leaderFollowWeight
+    });
+  }
+}
+
+function recordOptimizerResult(method, result, runtimeMs, options = {}) {
   const metrics = result.metrics || {};
   const splitMetrics = result.seedSplitMetrics || {};
   const trainingMetrics = splitMetrics.training || splitMetricsSummary(result);
   const validationMetrics = splitMetrics.validation || {};
   const testMetrics = splitMetrics.test || validationMetrics || trainingMetrics;
+  const optimizerRun = optimizerRows.length + 1;
+  recordOptimizerEvaluationHistory(method, result, optimizerRun, options);
   optimizerRows.push({
+    run: optimizerRun,
     method: method,
     trainFitness: trainingMetrics.fitness,
     validationFitness: validationMetrics.fitness,
@@ -1149,7 +1201,8 @@ function recordOptimizerResult(method, result, runtimeMs) {
     parameterKeys: (result.parameterKeys || []).slice(),
     validationSelection: result.validationSelection,
     seedProtocol: result.seedProtocol,
-    seedSplitMetrics: splitMetrics
+    seedSplitMetrics: splitMetrics,
+    evaluationLogRows: (result.evaluationLog || []).length
   });
   renderOptimizerResultsTable();
 }
@@ -1288,7 +1341,8 @@ function exportResultsJSON() {
     currentWeights: Object.assign({}, conf),
     repeatedTests: batchRows,
     repeatedTestRuns: batchRunRows,
-    optimizerRuns: optimizerRows
+    optimizerRuns: optimizerRows,
+    optimizerEvaluationHistory: optimizerEvaluationRows
   };
 
   downloadFile(
@@ -1433,6 +1487,61 @@ function exportOptimizerWeightsCSV() {
   setOptimizerExportStatus("Exported optimizer weights CSV.");
 }
 
+function exportOptimizerHistoryCSV() {
+  if (optimizerEvaluationRows.length === 0) {
+    setOptimizerExportStatus("Run GA or CMA-ES before exporting optimizer history.");
+    return;
+  }
+
+  const columns = [
+    "method",
+    "optimizerRun",
+    "optimizerSeed",
+    "generation",
+    "individual",
+    "rank",
+    "populationSize",
+    "evaluation",
+    "trainingSeeds",
+    "targetChanges",
+    "maxSteps",
+    "parameterKeys",
+    "fitness",
+    "cost",
+    "meanFitness",
+    "fitnessStd",
+    "targetScore",
+    "formationScore",
+    "constraintScore",
+    "targets",
+    "targetTime",
+    "order",
+    "nn",
+    "spacingScore",
+    "cluster",
+    "collisionRate",
+    "sigma",
+    "cohesion",
+    "alignment",
+    "separation",
+    "targetWeight",
+    "avoidance",
+    "leaderFollowWeight"
+  ];
+  const lines = [columns.map(csvValue).join(",")];
+
+  for (const row of optimizerEvaluationRows) {
+    lines.push(columns.map((column) => csvValue(row[column])).join(","));
+  }
+
+  downloadFile(
+    "boids-optimizer-history-" + exportTimestamp() + ".csv",
+    lines.join("\n"),
+    "text/csv"
+  );
+  setOptimizerExportStatus("Exported optimizer history CSV.");
+}
+
 function exportOptimizerResultsJSON() {
   if (optimizerRows.length === 0) {
     setOptimizerExportStatus("Run GA or CMA-ES before exporting optimizer results.");
@@ -1442,7 +1551,8 @@ function exportOptimizerResultsJSON() {
   const payload = {
     exportedAt: new Date().toISOString(),
     optimizerSeedSplits: OPTIMIZER_SEED_SPLITS,
-    optimizerRuns: optimizerRows
+    optimizerRuns: optimizerRows,
+    optimizerEvaluationHistory: optimizerEvaluationRows
   };
 
   downloadFile(
@@ -1617,4 +1727,5 @@ if (typeof window !== "undefined") {
   window.exportOptimizerResultsCSV = exportOptimizerResultsCSV;
   window.exportOptimizerWeightsJSON = exportOptimizerWeightsJSON;
   window.exportOptimizerWeightsCSV = exportOptimizerWeightsCSV;
+  window.exportOptimizerHistoryCSV = exportOptimizerHistoryCSV;
 }

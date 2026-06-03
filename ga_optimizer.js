@@ -114,6 +114,7 @@ class BoidsGAOptimizer {
     this.onProgress = options.onProgress || null;
     this.random = new GASeededRandom(options.seed || 24681357);
     this.history = [];
+    this.evaluationLog = [];
     this.evaluations = 0;
   }
 
@@ -446,10 +447,47 @@ class BoidsGAOptimizer {
     return Math.sqrt(variance);
   }
 
-  evaluatePopulation(population) {
-    return population
-      .map((genome) => this.evaluateGenome(genome))
-      .sort((a, b) => b.fitness - a.fitness);
+  logEvaluatedPopulation(generation, evaluatedPopulation) {
+    for (let i = 0; i < evaluatedPopulation.length; i++) {
+      const individual = evaluatedPopulation[i];
+      const metrics = individual.metrics || {};
+      this.evaluationLog.push({
+        method: "GA",
+        generation: generation,
+        individual: individual.individual || i + 1,
+        rank: i + 1,
+        populationSize: evaluatedPopulation.length,
+        evaluation: individual.evaluation || this.evaluations,
+        fitness: individual.fitness,
+        cost: individual.cost,
+        meanFitness: metrics.meanFitness,
+        fitnessStd: metrics.fitnessStd,
+        targetScore: metrics.targetScore,
+        formationScore: metrics.formationScore,
+        constraintScore: metrics.constraintScore,
+        targetCompletionCount: metrics.targetCompletionCount,
+        averageTargetChangeInterval: metrics.averageTargetChangeInterval,
+        orderParam: metrics.orderParam,
+        meanNearestNeighborDistance: metrics.meanNearestNeighborDistance,
+        spacingScore: metrics.spacingScore,
+        largestClusterFraction: metrics.largestClusterFraction,
+        collisionRate: metrics.collisionRate,
+        weights: Object.assign({}, individual.weights),
+        parameterKeys: this.parameterKeys.slice()
+      });
+    }
+  }
+
+  evaluatePopulation(population, generation) {
+    const evaluated = population.map((genome, index) => {
+      const individual = this.evaluateGenome(genome);
+      individual.individual = index + 1;
+      individual.evaluation = this.evaluations;
+      return individual;
+    }).sort((a, b) => b.fitness - a.fitness);
+
+    this.logEvaluatedPopulation(generation, evaluated);
+    return evaluated;
   }
 
   parentPool(evaluatedPopulation) {
@@ -470,6 +508,8 @@ class BoidsGAOptimizer {
         populationSize: population.length,
       });
 
+      individual.individual = i + 1;
+      individual.evaluation = this.evaluations;
       evaluated.push(individual);
       this.reportProgress({
         phase: "individual",
@@ -483,7 +523,9 @@ class BoidsGAOptimizer {
       await this.yieldControl();
     }
 
-    return evaluated.sort((a, b) => b.fitness - a.fitness);
+    evaluated.sort((a, b) => b.fitness - a.fitness);
+    this.logEvaluatedPopulation(generation, evaluated);
+    return evaluated;
   }
 
   selectParent(evaluatedPopulation) {
@@ -568,7 +610,7 @@ class BoidsGAOptimizer {
 
   run() {
     let population = this.initialPopulation();
-    let evaluated = this.evaluatePopulation(population);
+    let evaluated = this.evaluatePopulation(population, 0);
     this.recordGeneration(0, evaluated);
 
     for (let generation = 1; generation <= this.generations; generation++) {
@@ -577,7 +619,7 @@ class BoidsGAOptimizer {
       }
 
       population = this.nextPopulation(evaluated);
-      evaluated = this.evaluatePopulation(population);
+      evaluated = this.evaluatePopulation(population, generation);
       this.recordGeneration(generation, evaluated);
     }
 
@@ -589,6 +631,7 @@ class BoidsGAOptimizer {
       cost: best.cost,
       metrics: Object.assign({}, best.metrics),
       history: this.history.slice(),
+      evaluationLog: this.evaluationLog.slice(),
       evaluations: this.evaluations,
       scenarioCount:
         this.evaluationSeeds.length * (this.targetChangeSteps().length + 1),
@@ -637,6 +680,7 @@ class BoidsGAOptimizer {
       cost: best.cost,
       metrics: Object.assign({}, best.metrics),
       history: this.history.slice(),
+      evaluationLog: this.evaluationLog.slice(),
       evaluations: this.evaluations,
       scenarioCount:
         this.evaluationSeeds.length * (this.targetChangeSteps().length + 1),

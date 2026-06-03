@@ -243,6 +243,7 @@ class BoidsCMAESOptimizer {
 
     this.random = new CMAESRandom(options.seed || 99991357);
     this.history = [];
+    this.evaluationLog = [];
     this.evaluations = 0;
   }
 
@@ -633,6 +634,38 @@ class BoidsCMAESOptimizer {
     return Math.sqrt(variance);
   }
 
+  _logEvaluatedPopulation(generation, evaluated) {
+    for (let i = 0; i < evaluated.length; i++) {
+      const individual = evaluated[i];
+      const metrics = individual.metrics || {};
+      this.evaluationLog.push({
+        method: "CMA-ES",
+        generation: generation,
+        individual: individual.individual || i + 1,
+        rank: i + 1,
+        populationSize: evaluated.length,
+        evaluation: individual.evaluation || this.evaluations,
+        fitness: individual.fitness,
+        cost: individual.cost,
+        meanFitness: metrics.meanFitness,
+        fitnessStd: metrics.fitnessStd,
+        targetScore: metrics.targetScore,
+        formationScore: metrics.formationScore,
+        constraintScore: metrics.constraintScore,
+        targetCompletionCount: metrics.targetCompletionCount,
+        averageTargetChangeInterval: metrics.averageTargetChangeInterval,
+        orderParam: metrics.orderParam,
+        meanNearestNeighborDistance: metrics.meanNearestNeighborDistance,
+        spacingScore: metrics.spacingScore,
+        largestClusterFraction: metrics.largestClusterFraction,
+        collisionRate: metrics.collisionRate,
+        sigma: this.sigma,
+        weights: Object.assign({}, individual.weights),
+        parameterKeys: this.parameterKeys.slice()
+      });
+    }
+  }
+
   // Asynchronous run
   async runAsync() {
     this._initState();
@@ -661,6 +694,8 @@ class BoidsCMAESOptimizer {
           cost: result.cost,
           weights: result.weights,
           metrics: result.metrics,
+          individual: k + 1,
+          evaluation: this.evaluations
         };
         evaluated.push(entry);
 
@@ -678,6 +713,7 @@ class BoidsCMAESOptimizer {
 
       // Sort by descending fitness (CMA-ES selects best μ individuals)
       evaluated.sort((a, b) => b.fitness - a.fitness);
+      this._logEvaluatedPopulation(gen, evaluated);
 
       const best = evaluated[0];
       if (!bestResult || best.fitness > bestResult.fitness) {
@@ -731,7 +767,7 @@ class BoidsCMAESOptimizer {
       const samples = Array.from({ length: this.lambda }, () =>
         this._samplePoint(),
       );
-      const evaluated = samples.map((s) => {
+      const evaluated = samples.map((s, index) => {
         const genome = this._toGenome(s.x);
         const result = this.evaluateGenome(genome);
         return {
@@ -743,10 +779,13 @@ class BoidsCMAESOptimizer {
           cost: result.cost,
           weights: result.weights,
           metrics: result.metrics,
+          individual: index + 1,
+          evaluation: this.evaluations
         };
       });
 
       evaluated.sort((a, b) => b.fitness - a.fitness);
+      this._logEvaluatedPopulation(gen, evaluated);
 
       const best = evaluated[0];
       if (!bestResult || best.fitness > bestResult.fitness) {
@@ -787,6 +826,7 @@ class BoidsCMAESOptimizer {
       cost: bestResult.cost,
       metrics: Object.assign({}, bestResult.metrics),
       history: this.history.slice(),
+      evaluationLog: this.evaluationLog.slice(),
       evaluations: this.evaluations,
       scenarioCount:
         this.evaluationSeeds.length * (this.targetChangeSteps().length + 1),
